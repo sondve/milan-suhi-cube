@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <title>米兰地表城市热岛 (SUHI) 20年时空演变交互式汇报系统</title>
+    <!-- 引入 Leaflet 地图样式与核心库 -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- 引入 GeoRaster 核心插件：用于在前端直接解析和渲染多波段 TIF 数据 -->
+    <script src="https://unpkg.com/georaster"></script>
+    <script src="https://unpkg.com/georaster-layer-for-leaflet"></script>
+
+    <!-- 引入 Apache ECharts：用于绘制高大上、带动效的时间序列折线图 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #app-header {
+            height: 60px;
+            background: #1a1a2e;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+            z-index: 1000;
+            position: relative;
+        }
+
+        #app-header h1 {
+            margin: 0;
+            font-size: 1.2rem;
+            letter-spacing: 1px;
+        }
+
+        #container {
+            display: flex;
+            height: calc(100% - 60px);
+            width: 100%;
+            position: relative;
+        }
+
+        #map {
+            flex: 1;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* 右侧面板：用于展示 ECharts 折线图 */
+        #panel {
+            width: 450px;
+            height: 100%;
+            background: #ffffff;
+            box-shadow: -2px 0 15px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+        }
+
+        #chart-container {
+            flex: 1;
+            width: 100%;
+            min-height: 300px;
+            margin-top: 15px;
+        }
+
+        /* 年份悬浮控制条 */
+        #timeline-control {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            width: 400px;
+        }
+
+        #timeline-control input {
+            flex: 1;
+            cursor: pointer;
+        }
+
+        #year-display {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: #e94560;
+            min-width: 60px;
+        }
+
+        .intro-text {
+            color: #555;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 15px;
+        }
+
+        #pixel-info {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #333;
+            font-size: 0.95rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="app-header">
+        <h1>Milan SUHI Data Cube 交互可视化汇报系统 (2003–2025)</h1>
+        <span style="font-size: 0.85rem; color: #95a5a6;">技术栈: Leaflet + GeoRaster + ECharts</span>
+    </div>
+
+    <div id="container">
+        <!-- 地图容器 -->
+        <div id="map"></div>
+
+        <!-- 年份滑块控制条 -->
+        <div id="timeline-control">
+            <span style="font-weight: bold; color:#333;">选择年份:</span>
+            <input type="range" id="year-slider" min="2003" max="2025" value="2024" step="1">
+            <span id="year-display">2024</span>
+        </div>
+
+        <!-- 右侧图表分析面板 -->
+        <div id="panel">
+            <h2>时空数据立方体分析</h2>
+            <p class="intro-text">
+                本系统直接解析 23 个波段的遥感数据立方体（Data Cube）。请在左侧地图中<b>点击任意位置</b>，系统将纵向穿透时间轴，实时渲染该像素 2003–2025 年的地表城市热岛强度演变曲线。
+            </p>
+            <div id="pixel-info">当前状态: 等待点击地图获取像素...</div>
+            <!-- ECharts 挂载点 -->
+            <div id="chart-container"></div>
+        </div>
+    </div>
+
+    <script>
+        // =====================================================================
+        // 1. 初始化基础地图与核心配置
+        // =====================================================================
+        // 替换为你本地或服务器上的多波段 TIF 路径（可以是相对路径，或者是 http 开头的网络路径）
+        // 关键点：该 TIF 必须有 23 个波段，分别对应 2003 到 2025 年
+        const TIF_URL = "/Users/liwenbo/Documents/unipv/项目/GEE_MODIS_SUHI_Milan/geemap/Milan_SUHI_FB_TIF/Milan_pixel_anomaly_FB_urban_background_Aqua_Day_annual_2003_2025.tif";
+
+        const startYear = 2003;
+        const yearsArray = Array.from({ length: 2025 - 2003 + 1 }, (_, i) => startYear + i);
+
+        // 初始化底图 (使用黑夜深色调底图，能极大地烘托热岛的色彩冲击力)
+        const map = L.map('map').setView([45.4642, 9.1900], 11); // 定位至米兰
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap & CartoDB'
+        }).addTo(map);
+
+        let globalGeoRaster = null;
+        let suhiLayer = null;
+        let myChart = echarts.init(document.getElementById('chart-container'));
+        let currentMarker = null;
+
+        // 初始化空图表
+        initECharts([], "无数据");
+
+        // =====================================================================
+        // 2. 加载、解析遥感 Data Cube (核心步骤)
+        // =====================================================================
+        fetch(TIF_URL)
+            .then(response => response.arrayBuffer())
+            .then(arrayBuffer => parseGeoraster(arrayBuffer))
+            .then(georaster => {
+                globalGeoRaster = georaster;
+                console.log("Data Cube 解析成功! 波段总数:", georaster.numberOfRasters);
+
+                // 首次渲染默认年份 (2024年)
+                updateRasterLayer(2024);
+
+                // 监听年份滑块变化
+                document.getElementById('year-slider').addEventListener('input', function (e) {
+                    const targetYear = parseInt(e.target.value);
+                    document.getElementById('year-display').innerText = targetYear;
+                    updateRasterLayer(targetYear);
+                });
+            })
+            .catch(err => {
+                console.error("TIF文件读取失败，请检查路径是否正确。", err);
+                document.getElementById('pixel-info').innerHTML = "<span style='color:red;'>错误: 无法加载 TIF 数据。请确保 TIF 路径正确并已解决跨域问题。</span>";
+            });
+
+        // =====================================================================
+        // 3. 动态波段栅格渲染与配色逻辑
+        // =====================================================================
+        function updateRasterLayer(year) {
+            if (!globalGeoRaster) return;
+
+            // 计算当前年份对应的波段索引 (Band Index从0开始)
+            const bandIndex = year - startYear;
+
+            // 如果图层已存在，先移除旧图层
+            if (suhiLayer) map.removeLayer(suhiLayer);
+
+            // 构建自适应的前端动态配色方案 (经典拉伸法)
+            suhiLayer = new GeoRasterLayer({
+                georaster: globalGeoRaster,
+                opacity: 0.75,
+                pixelValuesToColorFn: values => {
+                    const value = values[bandIndex];
+
+                    // 过滤无效值 / 空值 / 背景屏蔽值
+                    if (value === null || isNaN(value) || value <= -999) return null;
+
+                    // 热岛强度值拉伸配色 (假设 SUHII 在 -4°C 到 6°C 之间)
+                    // 极冷(负热岛):蓝色 -> 正常:白色 -> 极热(强热岛):深红
+                    if (value < 0) {
+                        // 负热岛（冷岛效应）
+                        const ratio = Math.min(Math.abs(value) / 4, 1);
+                        return `rgba(0, 120, 255, ${ratio})`;
+                    } else {
+                        // 正热岛
+                        const ratio = Math.min(value / 6, 1);
+                        // 线性渐变：从浅黄到正红再到暗红
+                        if (ratio < 0.2) return `rgba(255, 255, 255, 0.3)`; // 接近0度透明
+                        if (ratio < 0.6) return `rgba(255, 140, 0, ${ratio})`; // 橙色
+                        return `rgba(233, 69, 96, ${ratio})`; // 强热岛红色
+                    }
+                },
+                resolution: 128
+            });
+
+            suhiLayer.addTo(map);
+        }
+
+        // =====================================================================
+        // 4. 纵向穿透：点击像素提取 23 年时间序列 (钻取逻辑)
+        // =====================================================================
+        map.on('click', function (e) {
+            if (!globalGeoRaster) return;
+
+            const lat = e.latlng.lat;
+            const lng = e.latlng.lng;
+
+            // 调用 geoblaze / georaster 内部机制，逆向检索像素坐标
+            const x = Math.floor((lng - globalGeoRaster.xmin) / globalGeoRaster.pixelWidth);
+            const y = Math.floor((globalGeoRaster.ymax - lat) / globalGeoRaster.pixelHeight);
+
+            // 越界检查
+            if (x < 0 || x >= globalGeoRaster.width || y < 0 || y >= globalGeoRaster.height) {
+                document.getElementById('pixel-info').innerText = "点击超出数据边界！";
+                return;
+            }
+
+            // 纵向钻取（Drilling）：一次性抽干该空间点上所有波段的值
+            const timeSeriesValues = [];
+            for (let b = 0; b < globalGeoRaster.numberOfRasters; b++) {
+                let val = globalGeoRaster.values[b][y][x];
+                // 无效值清洗
+                if (val === null || isNaN(val) || val <= -999) {
+                    timeSeriesValues.push(null);
+                } else {
+                    timeSeriesValues.push(parseFloat(val.toFixed(2))); // 保留两位小数
+                }
+            }
+
+            // 在地图上标记当前点击的点
+            if (currentMarker) map.removeLayer(currentMarker);
+            currentMarker = L.marker([lat, lng]).addTo(map);
+
+            // 更新右侧面板面板文字并刷新图表
+            document.getElementById('pixel-info').innerHTML = `📍 坐标: [${lat.toFixed(4)}, ${lng.toFixed(4)}]<br>当前像元时序深度提取成功。`;
+
+            initECharts(timeSeriesValues, `像素点 [${lat.toFixed(3)}, ${lng.toFixed(3)}]`);
+        });
+
+        // =====================================================================
+        // 5. 交互式汇报图表绘制 (ECharts 逻辑)
+        // =====================================================================
+        function initECharts(data, pointName) {
+            const option = {
+                title: { text: 'SUHI 历史长期演变趋势', subtext: pointName, left: 'center', textStyle: { fontSize: 14 } },
+                tooltip: { trigger: 'axis', formatter: '{b}年 : {c} °C', axisPointer: { type: 'shadow' } },
+                grid: { left: '10%', right: '5%', bottom: '10%', containLabel: true },
+                xAxis: {
+                    type: 'category',
+                    data: yearsArray,
+                    axisLabel: { rotate: 45 }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: 'SUHI 强度 (°C)',
+                    axisLabel: { formatter: '{value} ℃' },
+                    splitLine: { show: true, lineStyle: { type: 'dashed' } }
+                },
+                series: [{
+                    data: data,
+                    type: 'line',
+                    smooth: true, // 平滑曲线
+                    symbolSize: 8,
+                    connectNulls: false, // 不连接断点，真实反映多云缺失值
+                    lineStyle: { width: 3, color: '#e94560' },
+                    itemStyle: { color: '#1a1a2e', borderColor: '#e94560', borderWidth: 2 },
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: 'rgba(233, 69, 96, 0.4)' },
+                            { offset: 1, color: 'rgba(233, 69, 96, 0.0)' }
+                        ])
+                    },
+                    markLine: {
+                        silent: true,
+                        lineStyle: { color: '#333', type: 'solid' },
+                        data: [{ yAxis: 0 }] // 绘制 0 度等温线作为参考基准
+                    }
+                }]
+            };
+            myChart.setOption(option);
+        }
+
+        // 响应式图表缩放
+        window.addEventListener('resize', () => { myChart.resize(); });
+    </script>
+</body>
+
+</html>
