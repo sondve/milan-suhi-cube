@@ -1,18 +1,21 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SUHI Data Cube 交互式汇报系统</title>
+  <title>Milan SUHI Data Cube Interactive Explorer</title>
 
-  <!-- Leaflet: 地图显示 -->
+  <!-- Leaflet: map display -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- GeoTIFF.js: 浏览器端读取多波段 GeoTIFF -->
+  <!-- GeoTIFF.js: browser-side reading of multi-band GeoTIFF files -->
   <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
 
-  <!-- ECharts: 汇报型时间序列图表 -->
+  <!-- Proj4js: coordinate transformation between EPSG:32632 and WGS84 -->
+  <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
+
+  <!-- ECharts: report-style time-series charts -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
 
   <style>
@@ -37,7 +40,7 @@
       width: 100%;
       height: 100%;
       margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--bg);
       color: var(--text);
       overflow: hidden;
@@ -45,7 +48,7 @@
 
     #app {
       display: grid;
-      grid-template-columns: minmax(620px, 1fr) 440px;
+      grid-template-columns: minmax(620px, 1fr) 460px;
       grid-template-rows: 72px 1fr;
       height: 100vh;
       width: 100vw;
@@ -200,6 +203,12 @@
       word-break: break-word;
     }
 
+    .metric .value.coord-value {
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 650;
+    }
+
     .metric .unit {
       font-size: 12px;
       color: var(--muted);
@@ -247,6 +256,12 @@
     .two-col {
       display: grid;
       grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .three-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
       gap: 10px;
     }
 
@@ -476,7 +491,7 @@
       .legend-card { left: 12px; right: 12px; width: auto; }
       #timeline-card { left: 12px; right: 12px; bottom: 12px; }
       #year-label { font-size: 28px; }
-      .metric-grid, .two-col { grid-template-columns: 1fr; }
+      .metric-grid, .two-col, .three-col { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -487,13 +502,14 @@
       <div class="brand">
         <div class="brand-badge">🔥</div>
         <div>
-          <h1>米兰 SUHI 遥感数据立方体交互式汇报系统</h1>
-          <div class="subtitle">空间分布 × 年际变化 × 像元级时间序列：点击任意像元，纵向穿透 2003–2025 年 SUHI 演变</div>
+          <h1>Milan SUHI Remote Sensing Data Cube Explorer</h1>
+          <div class="subtitle">Spatial pattern × interannual dynamics × pixel-level time series: click any pixel to inspect SUHI evolution from 2003 to 2025</div>
         </div>
       </div>
       <div class="header-stats">
         <div class="pill" id="header-bands">Bands: --</div>
         <div class="pill" id="header-size">Size: --</div>
+        <div class="pill" id="header-crs">CRS: EPSG:32632</div>
         <div class="pill" id="header-bbox">BBox: --</div>
       </div>
     </header>
@@ -503,8 +519,8 @@
 
       <div class="legend-card">
         <div class="legend-title">
-          <strong>SUHI 强度图例</strong>
-          <span id="legend-mode">蓝-白-黄-红</span>
+          <strong>SUHI Intensity Legend</strong>
+          <span id="legend-mode">Blue–white–yellow–red</span>
         </div>
         <div id="legend-gradient"></div>
         <div class="legend-labels">
@@ -512,27 +528,27 @@
           <span>0 °C</span>
           <span id="legend-max">-- °C</span>
         </div>
-        <div class="note">蓝色表示冷岛/负异常，黄色至红色表示热岛增强。图例范围随拉伸模式变化。</div>
+        <div class="note">Blue indicates a cool-island or negative anomaly; yellow to red indicates intensified urban heating. The legend range changes with the stretch mode.</div>
       </div>
 
       <div id="timeline-card">
         <div class="timeline-top">
           <div class="year-big">
             <span id="year-label">----</span>
-            <span>当前显示年份</span>
+            <span>Displayed year</span>
           </div>
           <div class="button-row">
-            <button id="btn-prev">上一年</button>
-            <button class="primary" id="btn-play">播放</button>
-            <button id="btn-next">下一年</button>
+            <button id="btn-prev">Previous</button>
+            <button class="primary" id="btn-play">Play</button>
+            <button id="btn-next">Next</button>
           </div>
         </div>
         <input type="range" id="year-slider" min="2003" max="2025" value="2024" step="1" />
       </div>
 
       <div class="status show" id="status-box">
-        <h3 id="status-title">正在加载 SUHI Data Cube</h3>
-        <p id="status-text">首次加载会读取多波段 GeoTIFF，并计算每个年份的统计范围。请通过本地服务器或 GitHub Pages 打开页面，避免 file:// 导致浏览器拦截。</p>
+        <h3 id="status-title">Loading SUHI Data Cube</h3>
+        <p id="status-text">The first load reads a multi-band GeoTIFF and calculates the statistics for each year. Open this page from a local web server or GitHub Pages to avoid browser restrictions caused by file:// access.</p>
         <div class="progress-wrap"><div class="progress-bar"></div></div>
       </div>
     </main>
@@ -540,100 +556,134 @@
     <aside id="side-panel">
       <div class="panel-inner">
         <div class="section">
-          <h2 class="section-title">汇报说明 <span class="warn">Report Mode</span></h2>
+          <h2 class="section-title">Report Notes <span class="warn">Report Mode</span></h2>
           <p class="intro">
-            本页面面向论文汇报与项目展示：左侧呈现不同年份 SUHI 空间分布，底部控制时间轴；右侧展示数据概况、点击像元的 SUHI 年际曲线以及可调渲染参数。建议将多波段 TIF 放入 <b>data/</b> 文件夹后部署到 GitHub Pages。
+            This page is designed for paper presentations and project demonstrations. The map shows the spatial distribution of SUHI by year; the timeline controls the displayed band; and the side panel reports data metadata, the clicked pixel time series, and rendering settings. The GeoTIFF is expected to be projected to <b>EPSG:32632 / WGS 84 UTM zone 32N</b> before deployment.
           </p>
         </div>
 
         <div class="section">
-          <h2 class="section-title">当前像元状态 <span id="click-state" class="cool">等待点击</span></h2>
+          <h2 class="section-title">Data Selector <span class="cool">GitHub Pages</span></h2>
+          <div class="control-row">
+            <label for="method-select">Rural-background method</label>
+            <select id="method-select"></select>
+          </div>
+          <div class="two-col">
+            <div class="control-row">
+              <label for="sensor-select">Satellite sensor</label>
+              <select id="sensor-select">
+                <option value="Terra">Terra MODIS</option>
+                <option value="Aqua" selected>Aqua MODIS</option>
+              </select>
+            </div>
+            <div class="control-row">
+              <label for="overpass-select">Overpass time</label>
+              <select id="overpass-select">
+                <option value="Day" selected>Daytime</option>
+                <option value="Night">Nighttime</option>
+              </select>
+            </div>
+          </div>
+          <div class="control-row">
+            <label for="period-select">Temporal aggregation</label>
+            <select id="period-select"></select>
+          </div>
+          <div class="button-row">
+            <button class="primary" id="btn-load-selection">Load selected dataset</button>
+          </div>
+          <div class="note">
+            The selected path is written automatically into the GeoTIFF URL field below. To add SUE or MEA-R later, keep the same filename convention and update the method folder/token in the CONFIG block.
+          </div>
+        </div>
+
+        <div class="section">
+          <h2 class="section-title">Selected Pixel Status <span id="click-state" class="cool">Waiting for click</span></h2>
           <div class="metric-grid">
             <div class="metric">
-              <div class="label">经纬度</div>
-              <div class="value" id="metric-coord">--</div>
+              <div class="label">Coordinates</div>
+              <div class="value coord-value" id="metric-coord">--</div>
             </div>
             <div class="metric">
-              <div class="label">当前年 SUHI</div>
+              <div class="label">Current-year SUHI</div>
               <div class="value" id="metric-value">--<span class="unit">°C</span></div>
             </div>
             <div class="metric">
-              <div class="label">像元长期均值</div>
+              <div class="label">Long-term mean</div>
               <div class="value" id="metric-mean">--<span class="unit">°C</span></div>
             </div>
             <div class="metric">
-              <div class="label">长期变化斜率</div>
+              <div class="label">Long-term slope</div>
               <div class="value" id="metric-slope">--<span class="unit">°C/yr</span></div>
             </div>
           </div>
         </div>
 
         <div class="section">
-          <h2 class="section-title">像元 2003–2025 年 SUHI 曲线</h2>
+          <h2 class="section-title">Pixel-level SUHI Curve, 2003–2025</h2>
           <div id="chart"></div>
           <div class="button-row">
-            <button class="secondary" id="btn-download-csv" disabled>下载当前像元 CSV</button>
-            <button id="btn-clear-point" disabled>清除像元</button>
+            <button class="secondary" id="btn-download-csv" disabled>Download pixel CSV</button>
+            <button id="btn-clear-point" disabled>Clear pixel</button>
           </div>
         </div>
 
         <div class="section">
-          <h2 class="section-title">渲染控制</h2>
+          <h2 class="section-title">Rendering Controls</h2>
           <div class="control-row">
-            <label for="palette-select">颜色方案</label>
+            <label for="palette-select">Color palette</label>
             <select id="palette-select">
-              <option value="suhi">SUHI 经典：蓝-白-黄-红</option>
-              <option value="coolwarm">冷暖对比：蓝-白-红</option>
-              <option value="thermal">热力增强：黑-紫-橙-黄</option>
+              <option value="suhi">Classic SUHI: blue–white–yellow–red</option>
+              <option value="coolwarm">Cool–warm contrast: blue–white–red</option>
+              <option value="thermal">Enhanced thermal: black–purple–orange–yellow</option>
             </select>
           </div>
           <div class="two-col">
             <div class="control-row">
-              <label for="stretch-select">拉伸模式</label>
+              <label for="stretch-select">Stretch mode</label>
               <select id="stretch-select">
-                <option value="robust" selected>稳健拉伸 P2–P98</option>
-                <option value="current">当前年份 Min–Max</option>
-                <option value="global">全时段 Min–Max</option>
-                <option value="manual">手动范围</option>
+                <option value="robust" selected>Robust stretch P2–P98</option>
+                <option value="current">Current-year Min–Max</option>
+                <option value="global">Full-period Min–Max</option>
+                <option value="manual">Manual range</option>
               </select>
             </div>
             <div class="control-row">
-              <label for="opacity-slider">图层透明度</label>
+              <label for="opacity-slider">Layer opacity</label>
               <input type="range" id="opacity-slider" min="0.2" max="1" value="0.78" step="0.02" />
             </div>
           </div>
           <div class="two-col">
             <div class="control-row">
-              <label for="manual-min">手动最小值 °C</label>
+              <label for="manual-min">Manual minimum, °C</label>
               <input type="number" id="manual-min" value="-4" step="0.1" />
             </div>
             <div class="control-row">
-              <label for="manual-max">手动最大值 °C</label>
+              <label for="manual-max">Manual maximum, °C</label>
               <input type="number" id="manual-max" value="6" step="0.1" />
             </div>
           </div>
           <div class="button-row">
-            <button id="btn-redraw">刷新渲染</button>
-            <button id="btn-reset-view">回到数据范围</button>
+            <button id="btn-redraw">Refresh rendering</button>
+            <button id="btn-reset-view">Zoom to data extent</button>
           </div>
-          <div class="note">如果用于论文汇报，建议统一使用“稳健拉伸 P2–P98”或“手动范围”，避免异常值影响视觉解释。</div>
+          <div class="note">For paper figures and presentations, robust P2–P98 or a fixed manual range is recommended so that outliers do not dominate the visual interpretation.</div>
         </div>
 
         <div class="section">
-          <h2 class="section-title">数据源</h2>
+          <h2 class="section-title">Data Source</h2>
           <div class="control-row">
-            <label for="tif-url">GeoTIFF URL / GitHub Pages 相对路径</label>
-            <input type="text" id="tif-url" value="data/Milan_pixel_anomaly_FB_urban_background_Aqua_Day_annual_2003_2025.tif" />
+            <label for="tif-url">GeoTIFF URL / GitHub Pages relative path</label>
+            <input type="text" id="tif-url" value="" />
           </div>
           <div class="button-row">
-            <button class="primary" id="btn-load-url">加载 URL</button>
+            <button class="primary" id="btn-load-url">Load URL</button>
           </div>
           <div class="control-row">
-            <label for="local-file">或加载本地多波段 TIF</label>
+            <label for="local-file">Or load a local multi-band GeoTIFF</label>
             <input type="file" id="local-file" accept=".tif,.tiff,image/tiff" />
           </div>
           <div class="note">
-            GitHub Pages 推荐结构：<b>index.html</b> 与 <b>data/your_cube.tif</b>。本地预览请运行 <b>python3 -m http.server 8000</b>。
+            Recommended GitHub Pages structure: <b>index.html</b>, <b>.nojekyll</b>, and <b>data/Milan_SUHI_FB_TIF/*.tif</b>. For local preview, run <b>python3 -m http.server 8000</b> and open <b>http://localhost:8000</b>.
           </div>
         </div>
       </div>
@@ -642,20 +692,62 @@
 
   <script>
     // =====================================================================
-    // 0. 配置区：换数据时通常只需要改这里
+    // 0. Configuration
     // =====================================================================
     const CONFIG = {
-      defaultTifUrl: "Milan_pixel_anomaly_FB_urban_background_Aqua_Day_annual_2003_2025.tif",
-      fallbackTifUrl: "Milan_pixel_anomaly_FB_urban_background_Aqua_Day_annual_2003_2025.tif",
+      dataRoot: "data",
+      targetRasterCrs: "EPSG:32632",
+      displayCrs: "EPSG:4326",
       startYear: 2003,
       initialYear: 2024,
       noDataThreshold: -999,
       mapCenter: [45.4642, 9.1900],
-      mapZoom: 11
+      mapZoom: 11,
+
+      // Add future methods here. Make sure folder and fileToken match your actual filenames.
+      methods: {
+        FB: {
+          label: "Fixed Buffer (FB)",
+          folder: "Milan_SUHI_FB_TIF",
+          fileToken: "FB"
+        },
+        SUE: {
+          label: "Simplified Urban-extent (SUE)",
+          folder: "Milan_SUHI_SUE_TIF",
+          fileToken: "SUE"
+        },
+        MEAR: {
+          label: "Modified Equal Area–Rural (MEA-R)",
+          folder: "Milan_SUHI_MEA_R_TIF",
+          fileToken: "MEA_R"
+        }
+      },
+
+      periods: [
+        { value: "annual", label: "Annual" },
+        { value: "spring", label: "Spring" },
+        { value: "summer", label: "Summer" },
+        { value: "autumn", label: "Autumn" },
+        { value: "winter", label: "Winter" },
+        { value: "jun_sep", label: "June–September" },
+        { value: "july", label: "July" },
+        { value: "august", label: "August" },
+        { value: "september", label: "September" }
+      ],
+
+      defaultSelection: {
+        method: "FB",
+        sensor: "Aqua",
+        overpass: "Day",
+        period: "annual"
+      }
     };
 
+    // EPSG:32632 = WGS 84 / UTM zone 32N. Milan is in UTM zone 32N.
+    proj4.defs("EPSG:32632", "+proj=utm +zone=32 +datum=WGS84 +units=m +no_defs +type=crs");
+
     // =====================================================================
-    // 1. 全局状态
+    // 1. Global state
     // =====================================================================
     const state = {
       tiff: null,
@@ -664,8 +756,9 @@
       width: 0,
       height: 0,
       bands: 0,
-      bbox: null,        // [xmin, ymin, xmax, ymax]
-      bounds: null,      // Leaflet LatLngBounds
+      bbox: null,             // Native raster bbox: [xmin, ymin, xmax, ymax]
+      rasterCrs: CONFIG.targetRasterCrs,
+      bounds: null,           // Leaflet LatLngBounds for display
       years: [],
       bandStats: [],
       globalStats: null,
@@ -675,11 +768,12 @@
       marker: null,
       lastPixel: null,
       playing: false,
-      playTimer: null
+      playTimer: null,
+      sourceUrl: null
     };
 
     // =====================================================================
-    // 2. 地图与图表初始化
+    // 2. Map and chart initialization
     // =====================================================================
     const map = L.map("map", {
       zoomControl: false,
@@ -697,7 +791,7 @@
     initChart();
 
     // =====================================================================
-    // 3. DOM 快捷函数
+    // 3. DOM helpers
     // =====================================================================
     const $ = (id) => document.getElementById(id);
 
@@ -720,32 +814,122 @@
     }
 
     // =====================================================================
-    // 4. 加载 GeoTIFF
+    // 4. Dataset selector and URL construction
     // =====================================================================
-    async function loadFromUrl(url, allowFallback = true) {
+    function populateSelectors() {
+      const methodSelect = $("method-select");
+      methodSelect.innerHTML = Object.entries(CONFIG.methods)
+        .map(([key, method]) => `<option value="${key}">${method.label}</option>`)
+        .join("");
+
+      const periodSelect = $("period-select");
+      periodSelect.innerHTML = CONFIG.periods
+        .map(period => `<option value="${period.value}">${period.label}</option>`)
+        .join("");
+
+      $("method-select").value = CONFIG.defaultSelection.method;
+      $("sensor-select").value = CONFIG.defaultSelection.sensor;
+      $("overpass-select").value = CONFIG.defaultSelection.overpass;
+      $("period-select").value = CONFIG.defaultSelection.period;
+
+      updateTifUrlFromSelection();
+    }
+
+    function getCurrentSelection() {
+      return {
+        method: $("method-select").value,
+        sensor: $("sensor-select").value,
+        overpass: $("overpass-select").value,
+        period: $("period-select").value
+      };
+    }
+
+    function buildTifUrl(selection = getCurrentSelection()) {
+      const method = CONFIG.methods[selection.method];
+      if (!method) throw new Error(`Unknown method code: ${selection.method}`);
+      const filename = `Milan_pixel_anomaly_${method.fileToken}_urban_background_${selection.sensor}_${selection.overpass}_${selection.period}_2003_2025.tif`;
+      return `${CONFIG.dataRoot}/${method.folder}/${filename}`;
+    }
+
+    function updateTifUrlFromSelection() {
+      $("tif-url").value = buildTifUrl();
+    }
+
+    ["method-select", "sensor-select", "overpass-select", "period-select"].forEach(id => {
+      document.addEventListener("change", (event) => {
+        if (event.target && event.target.id === id) updateTifUrlFromSelection();
+      });
+    });
+
+    // =====================================================================
+    // 5. Coordinate transformation helpers
+    // =====================================================================
+    function bboxLooksGeographic(bbox) {
+      const [xmin, ymin, xmax, ymax] = bbox;
+      return xmin >= -180 && xmax <= 180 && ymin >= -90 && ymax <= 90;
+    }
+
+    function detectRasterCrs(bbox) {
+      // If the bbox is in degrees, treat it as WGS84. Otherwise, follow the requested EPSG:32632 display workflow.
+      return bboxLooksGeographic(bbox) ? "EPSG:4326" : CONFIG.targetRasterCrs;
+    }
+
+    function rasterXYToLatLng(x, y, rasterCrs = state.rasterCrs) {
+      if (rasterCrs === "EPSG:4326") return [y, x];
+      const [lng, lat] = proj4(rasterCrs, CONFIG.displayCrs, [x, y]);
+      return [lat, lng];
+    }
+
+    function latLngToRasterXY(lat, lng, rasterCrs = state.rasterCrs) {
+      if (rasterCrs === "EPSG:4326") return [lng, lat];
+      return proj4(CONFIG.displayCrs, rasterCrs, [lng, lat]);
+    }
+
+    function bboxToLeafletBounds(bbox, rasterCrs) {
+      const [xmin, ymin, xmax, ymax] = bbox;
+      if (rasterCrs === "EPSG:4326") {
+        return L.latLngBounds([ymin, xmin], [ymax, xmax]);
+      }
+
+      const corners = [
+        rasterXYToLatLng(xmin, ymin, rasterCrs),
+        rasterXYToLatLng(xmin, ymax, rasterCrs),
+        rasterXYToLatLng(xmax, ymin, rasterCrs),
+        rasterXYToLatLng(xmax, ymax, rasterCrs)
+      ];
+      return L.latLngBounds(corners);
+    }
+
+    function formatCoordinateHTML(lat, lng, pixel) {
+      const [rx, ry] = latLngToRasterXY(lat, lng);
+      if (state.rasterCrs === CONFIG.targetRasterCrs) {
+        return `WGS84: ${lat.toFixed(5)}, ${lng.toFixed(5)}<br>UTM 32N: ${rx.toFixed(1)} m E, ${ry.toFixed(1)} m N<br>Row/Col: ${pixel.y}, ${pixel.x}`;
+      }
+      return `WGS84: ${lat.toFixed(5)}, ${lng.toFixed(5)}<br>Row/Col: ${pixel.y}, ${pixel.x}`;
+    }
+
+    // =====================================================================
+    // 6. Load GeoTIFF
+    // =====================================================================
+    async function loadFromUrl(url) {
       try {
-        setStatus("正在加载数据", `正在读取：<b>${url}</b>`);
+        setStatus("Loading dataset", `Reading: <b>${url}</b>`);
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
         const buffer = await response.arrayBuffer();
         await loadFromArrayBuffer(buffer, url);
       } catch (error) {
-        if (allowFallback && url !== CONFIG.fallbackTifUrl) {
-          console.warn("默认 data/ 路径加载失败，尝试根目录文件：", error);
-          await loadFromUrl(CONFIG.fallbackTifUrl, false);
-        } else {
-          console.error(error);
-          setStatus(
-            "数据加载失败",
-            `无法读取 GeoTIFF。请检查路径、文件名、GitHub Pages 部署位置或 CORS 设置。<br><br><b>错误信息：</b>${error.message}`,
-            true
-          );
-        }
+        console.error(error);
+        setStatus(
+          "Dataset loading failed",
+          `The GeoTIFF could not be read. Check the path, filename, GitHub Pages deployment folder, and file size.<br><br><b>Error:</b> ${error.message}`,
+          true
+        );
       }
     }
 
     async function loadFromArrayBuffer(buffer, sourceName = "local file") {
-      setStatus("解析 GeoTIFF", "正在解析多波段影像、读取空间范围与像元矩阵……");
+      setStatus("Parsing GeoTIFF", "Parsing the multi-band image, spatial extent, CRS assumption, and raster matrix...");
 
       const tiff = await GeoTIFF.fromArrayBuffer(buffer);
       const image = await tiff.getImage();
@@ -755,10 +939,13 @@
       const bbox = image.getBoundingBox();
 
       if (!bbox || bbox.length !== 4) {
-        throw new Error("当前 GeoTIFF 缺少可识别的地理范围 BoundingBox。请确认它是 GeoTIFF 而非普通 TIF。");
+        throw new Error("This GeoTIFF does not contain a readable BoundingBox. Please confirm that it is a georeferenced GeoTIFF rather than a plain TIF.");
       }
 
-      setStatus("读取栅格数据", `影像尺寸：${width} × ${height}，波段数：${bands}。正在读取所有年份 band……`);
+      const rasterCrs = detectRasterCrs(bbox);
+      const bounds = bboxToLeafletBounds(bbox, rasterCrs);
+
+      setStatus("Reading raster data", `Image size: ${width} × ${height}; bands: ${bands}. Reading all annual bands...`);
       const rasters = await image.readRasters({ interleave: false });
 
       state.tiff = tiff;
@@ -768,10 +955,12 @@
       state.height = height;
       state.bands = bands;
       state.bbox = bbox;
-      state.bounds = L.latLngBounds([bbox[1], bbox[0]], [bbox[3], bbox[2]]);
+      state.rasterCrs = rasterCrs;
+      state.bounds = bounds;
+      state.sourceUrl = sourceName;
       state.years = Array.from({ length: bands }, (_, i) => CONFIG.startYear + i);
 
-      setStatus("计算统计信息", "正在计算每个年份的 Min、Max、P2、P98、均值等统计量，用于动态图例和稳健拉伸……");
+      setStatus("Calculating statistics", "Calculating Min, Max, P2, P98, and mean values for each year to support dynamic legends and robust stretching...");
       computeStats();
       updateHeaderInfo(sourceName);
       setupYearSlider();
@@ -848,9 +1037,10 @@
     function updateHeaderInfo(sourceName) {
       $("header-bands").textContent = `Bands: ${state.bands}`;
       $("header-size").textContent = `Size: ${state.width} × ${state.height}`;
+      $("header-crs").textContent = `CRS: ${state.rasterCrs}`;
       const b = state.bbox;
       $("header-bbox").textContent = `BBox: ${b[0].toFixed(2)}, ${b[1].toFixed(2)} → ${b[2].toFixed(2)}, ${b[3].toFixed(2)}`;
-      document.title = `SUHI Data Cube - ${state.years[0]}–${state.years[state.years.length - 1]}`;
+      document.title = `Milan SUHI Data Cube - ${state.years[0]}–${state.years[state.years.length - 1]}`;
     }
 
     function setupYearSlider() {
@@ -861,7 +1051,7 @@
     }
 
     // =====================================================================
-    // 5. 栅格渲染：当前年份 band → Canvas → Leaflet ImageOverlay
+    // 7. Raster rendering: current band -> Canvas -> Leaflet ImageOverlay
     // =====================================================================
     function getStretchRange(bandIndex) {
       const mode = $("stretch-select").value;
@@ -943,7 +1133,7 @@
         ], 238);
       }
 
-      // SUHI 与 coolwarm 默认都以 0 °C 为语义中心，负值偏蓝，正值偏暖。
+      // SUHI and coolwarm palettes use 0 °C as the semantic center.
       if (v < 0 && min < 0) {
         const t = clamp((v - min) / (0 - min), 0, 1);
         if (palette === "coolwarm") {
@@ -993,24 +1183,24 @@
       const mode = $("legend-mode");
       if (palette === "thermal") {
         legend.style.background = "linear-gradient(90deg, #0f172a, #581c87, #dc2626, #f97316, #fef08a)";
-        mode.textContent = "热力增强";
+        mode.textContent = "Enhanced thermal";
       } else if (palette === "coolwarm") {
         legend.style.background = "linear-gradient(90deg, #2563eb, #f8fafc, #b91c1c)";
-        mode.textContent = "蓝-白-红";
+        mode.textContent = "Blue–white–red";
       } else {
         legend.style.background = "linear-gradient(90deg, #1e40af, #38bdf8, #f8fafc, #fef08a, #ef4444, #7f1d1d)";
-        mode.textContent = "蓝-白-黄-红";
+        mode.textContent = "Blue–white–yellow–red";
       }
     }
 
     // =====================================================================
-    // 6. 点击像元，提取时间序列
+    // 8. Click a pixel and extract its time series
     // =====================================================================
     map.on("click", (e) => {
       if (!state.rasters.length || !state.bbox) return;
       const pixel = latLngToPixel(e.latlng.lat, e.latlng.lng);
       if (!pixel) {
-        $("click-state").textContent = "超出范围";
+        $("click-state").textContent = "Outside raster";
         $("click-state").className = "warn";
         return;
       }
@@ -1026,15 +1216,17 @@
         fillOpacity: 0.92
       }).addTo(map);
 
-      state.marker.bindPopup(`像元：row ${pixel.y}, col ${pixel.x}<br>坐标：${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`).openPopup();
+      const coordHtml = formatCoordinateHTML(e.latlng.lat, e.latlng.lng, pixel);
+      state.marker.bindPopup(`Pixel: row ${pixel.y}, col ${pixel.x}<br>${coordHtml}`).openPopup();
       updateChartForPixel(pixel.x, pixel.y, e.latlng.lat, e.latlng.lng, true);
     });
 
     function latLngToPixel(lat, lng) {
       const [xmin, ymin, xmax, ymax] = state.bbox;
-      if (lng < xmin || lng > xmax || lat < ymin || lat > ymax) return null;
-      const x = Math.floor((lng - xmin) / (xmax - xmin) * state.width);
-      const y = Math.floor((ymax - lat) / (ymax - ymin) * state.height);
+      const [rx, ry] = latLngToRasterXY(lat, lng, state.rasterCrs);
+      if (rx < xmin || rx > xmax || ry < ymin || ry > ymax) return null;
+      const x = Math.floor((rx - xmin) / (xmax - xmin) * state.width);
+      const y = Math.floor((ymax - ry) / (ymax - ymin) * state.height);
       if (x < 0 || x >= state.width || y < 0 || y >= state.height) return null;
       return { x, y };
     }
@@ -1058,9 +1250,9 @@
       const slope = validPairs.length >= 2 ? linearSlope(validPairs.map(d => d.year), validPairs.map(d => d.value)) : NaN;
       const currentValue = values[state.currentBandIndex];
 
-      $("click-state").textContent = "已选中";
+      $("click-state").textContent = "Selected";
       $("click-state").className = "ok";
-      $("metric-coord").textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      $("metric-coord").innerHTML = formatCoordinateHTML(lat, lng, { x, y });
       $("metric-value").innerHTML = `${currentValue === null ? "--" : currentValue.toFixed(2)}<span class="unit">°C</span>`;
       $("metric-mean").innerHTML = `${formatNumber(mean, 2)}<span class="unit">°C</span>`;
       $("metric-slope").innerHTML = `${formatNumber(slope, 4)}<span class="unit">°C/yr</span>`;
@@ -1093,14 +1285,14 @@
     }
 
     // =====================================================================
-    // 7. ECharts 图表
+    // 9. ECharts chart
     // =====================================================================
     function initChart() {
       chart.setOption({
         backgroundColor: "transparent",
         title: {
-          text: "点击地图像元查看 SUHI 长期变化",
-          subtext: "时间序列将在这里显示",
+          text: "Click a map pixel to inspect the long-term SUHI trend",
+          subtext: "The time series will appear here",
           left: "center",
           textStyle: { color: "#e2e8f0", fontSize: 14 },
           subtextStyle: { color: "#94a3b8" }
@@ -1117,8 +1309,8 @@
       chart.setOption({
         backgroundColor: "transparent",
         title: {
-          text: `像元 SUHI 年际变化曲线`,
-          subtext: `坐标 ${lat.toFixed(4)}, ${lng.toFixed(4)} ｜ 均值 ${formatNumber(mean, 2)} °C ｜ 斜率 ${formatNumber(slope, 4)} °C/yr`,
+          text: "Pixel-level SUHI interannual curve",
+          subtext: `WGS84 ${lat.toFixed(4)}, ${lng.toFixed(4)} | Mean ${formatNumber(mean, 2)} °C | Slope ${formatNumber(slope, 4)} °C/yr`,
           left: "center",
           textStyle: { color: "#e2e8f0", fontSize: 14, fontWeight: 700 },
           subtextStyle: { color: "#94a3b8", fontSize: 11 }
@@ -1131,7 +1323,7 @@
           formatter: (params) => {
             const p = params[0];
             const val = p.value === null || p.value === undefined ? "NoData" : `${Number(p.value).toFixed(3)} °C`;
-            return `<b>${p.axisValue} 年</b><br/>SUHI: ${val}`;
+            return `<b>${p.axisValue}</b><br/>SUHI: ${val}`;
           }
         },
         grid: { left: 48, right: 20, top: 76, bottom: 48 },
@@ -1143,7 +1335,7 @@
         },
         yAxis: {
           type: "value",
-          name: "SUHI 强度 (°C)",
+          name: "SUHI intensity (°C)",
           nameTextStyle: { color: "#cbd5e1" },
           axisLabel: { color: "#cbd5e1", formatter: "{value}" },
           splitLine: { lineStyle: { color: "rgba(148,163,184,0.18)", type: "dashed" } }
@@ -1170,15 +1362,15 @@
             lineStyle: { color: "rgba(248, 250, 252, 0.64)", type: "dashed" },
             data: [
               { yAxis: 0, name: "0°C" },
-              { xAxis: currentYear, name: "当前年份" }
+              { xAxis: currentYear, name: "Current year" }
             ]
           },
           markPoint: {
             symbolSize: 48,
             label: { color: "#0f172a", fontWeight: 700 },
             data: [
-              { type: "max", name: "最大" },
-              { type: "min", name: "最小" }
+              { type: "max", name: "Max" },
+              { type: "min", name: "Min" }
             ]
           }
         }]
@@ -1186,7 +1378,7 @@
     }
 
     // =====================================================================
-    // 8. 交互控件事件
+    // 10. UI events
     // =====================================================================
     $("year-slider").addEventListener("input", (e) => renderYear(parseInt(e.target.value, 10), true));
 
@@ -1202,7 +1394,7 @@
 
     $("btn-play").addEventListener("click", () => {
       state.playing = !state.playing;
-      $("btn-play").textContent = state.playing ? "暂停" : "播放";
+      $("btn-play").textContent = state.playing ? "Pause" : "Play";
       if (state.playing) {
         state.playTimer = setInterval(() => {
           const nextIdx = (state.currentBandIndex + 1) % state.years.length;
@@ -1227,9 +1419,15 @@
       if (state.bounds) map.fitBounds(state.bounds, { padding: [22, 22] });
     });
 
+    $("btn-load-selection").addEventListener("click", () => {
+      updateTifUrlFromSelection();
+      const url = $("tif-url").value.trim();
+      if (url) loadFromUrl(url);
+    });
+
     $("btn-load-url").addEventListener("click", () => {
       const url = $("tif-url").value.trim();
-      if (url) loadFromUrl(url, false);
+      if (url) loadFromUrl(url);
     });
 
     $("local-file").addEventListener("change", async (e) => {
@@ -1243,7 +1441,7 @@
       if (state.marker) map.removeLayer(state.marker);
       state.marker = null;
       state.lastPixel = null;
-      $("click-state").textContent = "等待点击";
+      $("click-state").textContent = "Waiting for click";
       $("click-state").className = "cool";
       $("metric-coord").textContent = "--";
       $("metric-value").innerHTML = `--<span class="unit">°C</span>`;
@@ -1256,13 +1454,16 @@
 
     $("btn-download-csv").addEventListener("click", () => {
       if (!state.lastPixel || !state.lastPixel.values) return;
-      const rows = [["year", "suhi_celsius", "lat", "lng", "row", "col"]];
+      const rows = [["year", "suhi_celsius", "lat_wgs84", "lng_wgs84", "utm_x_epsg32632", "utm_y_epsg32632", "row", "col"]];
+      const [utmX, utmY] = latLngToRasterXY(state.lastPixel.lat, state.lastPixel.lng);
       state.years.forEach((year, i) => {
         rows.push([
           year,
           state.lastPixel.values[i] === null ? "" : state.lastPixel.values[i],
           state.lastPixel.lat,
           state.lastPixel.lng,
+          utmX,
+          utmY,
           state.lastPixel.y,
           state.lastPixel.x
         ]);
@@ -1282,10 +1483,10 @@
     window.addEventListener("resize", () => chart.resize());
 
     // =====================================================================
-    // 9. 启动加载
+    // 11. Start
     // =====================================================================
-    $("tif-url").value = CONFIG.defaultTifUrl;
-    loadFromUrl(CONFIG.defaultTifUrl, true);
+    populateSelectors();
+    loadFromUrl($("tif-url").value.trim());
   </script>
 </body>
 </html>
