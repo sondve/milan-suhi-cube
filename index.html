@@ -601,7 +601,7 @@
             <button class="primary" id="btn-load-selection">Load selected dataset</button>
           </div>
           <div class="note">
-            The selected path is written automatically into the GeoTIFF URL field below. To add SUE or MEA-R later, keep the same filename convention and update the method folder/token in the CONFIG block.
+            The selected path is written automatically into the GeoTIFF URL field below. SUE, MEA-R, and MEA-S are handled through method-specific folder and filename tokens in the CONFIG block.
           </div>
         </div>
 
@@ -720,17 +720,27 @@
         FB: {
           label: "Fixed Buffer (FB)",
           folder: "Milan_SUHI_FB_TIF",
-          fileToken: "FB"
+          fileToken: "FB",
+          contextToken: "urban_background"
         },
         SUE: {
           label: "Simplified Urban-extent (SUE)",
           folder: "Milan_SUHI_SUE_TIF",
-          fileToken: "SUE"
+          fileToken: "SUE",
+          // SUE outputs use "urban" instead of "urban_background" in the filename.
+          contextToken: "urban"
         },
         MEAR: {
           label: "Modified Equal Area–Rural (MEA-R)",
           folder: "Milan_SUHI_MEA_R_TIF",
-          fileToken: "MEA_R"
+          fileToken: "MEA_R",
+          contextToken: "urban_background"
+        },
+        MEAS: {
+          label: "Modified Equal Area–Suburban (MEA-S)",
+          folder: "Milan_SUHI_MEA_S_TIF",
+          fileToken: "MEA_S",
+          contextToken: "urban_background"
         }
       },
 
@@ -858,7 +868,8 @@
     function buildTifUrl(selection = getCurrentSelection()) {
       const method = CONFIG.methods[selection.method];
       if (!method) throw new Error(`Unknown method code: ${selection.method}`);
-      const filename = `Milan_pixel_anomaly_${method.fileToken}_urban_background_${selection.sensor}_${selection.overpass}_${selection.period}_2003_2025.tif`;
+      const contextToken = method.contextToken || "urban_background";
+      const filename = `Milan_pixel_anomaly_${method.fileToken}_${contextToken}_${selection.sensor}_${selection.overpass}_${selection.period}_2003_2025.tif`;
       return `${CONFIG.dataRoot}/${method.folder}/${filename}`;
     }
 
