@@ -351,6 +351,36 @@
       font-size: 12px;
     }
 
+    .map-layer-toggle {
+      position: absolute;
+      right: 22px;
+      top: 82px;
+      z-index: 905;
+      min-width: 172px;
+      padding: 10px;
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.86);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .map-layer-toggle button {
+      width: 100%;
+      margin-bottom: 7px;
+    }
+
+    .map-layer-toggle .toggle-state {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+      text-align: center;
+    }
+
+    .result-ui-hidden {
+      display: none !important;
+    }
+
     .legend-card {
       position: absolute;
       left: 22px;
@@ -498,6 +528,7 @@
       h1 { font-size: 15px; }
       .subtitle { display: none; }
       .legend-card { left: 12px; right: 12px; width: auto; }
+      .map-layer-toggle { right: 12px; top: 72px; min-width: 150px; }
       #timeline-card { left: 12px; right: 12px; bottom: 12px; }
       #year-label { font-size: 28px; }
       .metric-grid, .two-col, .three-col { grid-template-columns: 1fr; }
@@ -525,6 +556,11 @@
 
     <main id="map-wrap">
       <div id="map"></div>
+
+      <div class="map-layer-toggle" id="map-layer-toggle">
+        <button class="primary" id="btn-toggle-result-layer" type="button">Base map only</button>
+        <div class="toggle-state" id="result-layer-state">SUHI results visible</div>
+      </div>
 
       <div class="legend-card">
         <div class="legend-title">
@@ -786,6 +822,7 @@
       currentBandIndex: 0,
       overlay: null,
       overlayCanvasUrl: null,
+      resultLayerVisible: true,
       marker: null,
       lastPixel: null,
       playing: false,
@@ -833,6 +870,58 @@
     function isValidValue(v) {
       return v !== null && v !== undefined && Number.isFinite(v) && v > CONFIG.noDataThreshold;
     }
+
+    function applyOverlayDisplayStyle() {
+      if (!state.overlay) return;
+      const overlayImg = state.overlay.getElement();
+      if (overlayImg) {
+        overlayImg.style.imageRendering = "pixelated";
+        overlayImg.style.filter = "none";
+      }
+    }
+
+    function refreshResultLayerToggleUi() {
+      const button = $("btn-toggle-result-layer");
+      const label = $("result-layer-state");
+      if (!button || !label) return;
+      button.textContent = state.resultLayerVisible ? "Base map only" : "Show SUHI results";
+      label.textContent = state.resultLayerVisible ? "SUHI results visible" : "Base map only";
+    }
+
+    function setResultLayerVisibility(visible) {
+      state.resultLayerVisible = Boolean(visible);
+
+      if (state.overlay) {
+        if (state.resultLayerVisible) {
+          if (!map.hasLayer(state.overlay)) state.overlay.addTo(map);
+          state.overlay.setOpacity(parseFloat($("opacity-slider").value));
+          applyOverlayDisplayStyle();
+        } else if (map.hasLayer(state.overlay)) {
+          map.removeLayer(state.overlay);
+        }
+      }
+
+      if (state.marker) {
+        if (state.resultLayerVisible) {
+          if (!map.hasLayer(state.marker)) state.marker.addTo(map);
+        } else if (map.hasLayer(state.marker)) {
+          map.removeLayer(state.marker);
+        }
+      }
+
+      const legend = document.querySelector(".legend-card");
+      if (legend) legend.classList.toggle("result-ui-hidden", !state.resultLayerVisible);
+      $("timeline-card").classList.toggle("result-ui-hidden", !state.resultLayerVisible);
+
+      refreshResultLayerToggleUi();
+    }
+
+    const layerToggleControl = $("map-layer-toggle");
+    if (layerToggleControl) {
+      L.DomEvent.disableClickPropagation(layerToggleControl);
+      L.DomEvent.disableScrollPropagation(layerToggleControl);
+    }
+    refreshResultLayerToggleUi();
 
     // =====================================================================
     // 4. Dataset selector and URL construction
@@ -1143,15 +1232,10 @@
         opacity: parseFloat($("opacity-slider").value),
         interactive: true,
         className: "suhi-overlay"
-      }).addTo(map);
-
-      const overlayImg = state.overlay.getElement();
-      if (overlayImg) {
-        overlayImg.style.imageRendering = "pixelated";
-        overlayImg.style.filter = "none";
-      }
+      });
 
       state.overlayCanvasUrl = url;
+      setResultLayerVisibility(state.resultLayerVisible);
       updateLegend(range.min, range.max, palette, range.label);
       updateCurrentPixelMetric();
       if (state.lastPixel) updateChartForPixel(state.lastPixel.x, state.lastPixel.y, state.lastPixel.lat, state.lastPixel.lng, false);
@@ -1237,6 +1321,7 @@
     // 8. Click a pixel and extract its time series
     // =====================================================================
     map.on("click", (e) => {
+      if (!state.resultLayerVisible) return;
       if (!state.rasters.length || !state.bbox) return;
       const pixel = latLngToPixel(e.latlng.lat, e.latlng.lng);
       if (!pixel) {
@@ -1431,8 +1516,14 @@
       }
     });
 
+    $("btn-toggle-result-layer").addEventListener("click", () => {
+      setResultLayerVisibility(!state.resultLayerVisible);
+    });
+
     $("opacity-slider").addEventListener("input", () => {
-      if (state.overlay) state.overlay.setOpacity(parseFloat($("opacity-slider").value));
+      if (state.overlay && state.resultLayerVisible && map.hasLayer(state.overlay)) {
+        state.overlay.setOpacity(parseFloat($("opacity-slider").value));
+      }
     });
 
     ["palette-select", "stretch-select", "manual-min", "manual-max"].forEach(id => {
