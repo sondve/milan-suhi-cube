@@ -380,8 +380,9 @@
     .basemap-control {
       position: absolute;
       right: 22px;
-      top: 172px;
-      z-index: 905;
+      bottom: 24px;
+      top: auto;
+      z-index: 920;
       min-width: 220px;
       padding: 10px;
       border-radius: 16px;
@@ -554,6 +555,11 @@
       .legend-card { width: 270px; }
       #timeline-card { max-width: none; }
       .header-stats { display: none; }
+      .basemap-control {
+        right: 12px;
+        bottom: 118px;
+        min-width: 200px;
+      }
     }
 
     @media (max-width: 680px) {
@@ -562,7 +568,7 @@
       .subtitle { display: none; }
       .legend-card { left: 12px; right: 12px; width: auto; }
       .map-layer-toggle { right: 12px; top: 72px; min-width: 150px; }
-      .basemap-control { right: 12px; top: 162px; min-width: 180px; }
+      .basemap-control { right: 12px; bottom: 118px; top: auto; min-width: 180px; }
       #timeline-card { left: 12px; right: 12px; bottom: 12px; }
       #year-label { font-size: 28px; }
       .metric-grid, .two-col, .three-col { grid-template-columns: 1fr; }
