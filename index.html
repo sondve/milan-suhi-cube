@@ -377,6 +377,39 @@
       text-align: center;
     }
 
+    .basemap-control {
+      position: absolute;
+      right: 22px;
+      top: 172px;
+      z-index: 905;
+      min-width: 220px;
+      padding: 10px;
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.86);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .basemap-control label {
+      margin-bottom: 6px;
+      color: #e2e8f0;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .basemap-control select {
+      height: 34px;
+      font-size: 12px;
+    }
+
+    .basemap-note {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
     .result-ui-hidden {
       display: none !important;
     }
@@ -529,6 +562,7 @@
       .subtitle { display: none; }
       .legend-card { left: 12px; right: 12px; width: auto; }
       .map-layer-toggle { right: 12px; top: 72px; min-width: 150px; }
+      .basemap-control { right: 12px; top: 162px; min-width: 180px; }
       #timeline-card { left: 12px; right: 12px; bottom: 12px; }
       #year-label { font-size: 28px; }
       .metric-grid, .two-col, .three-col { grid-template-columns: 1fr; }
@@ -560,6 +594,18 @@
       <div class="map-layer-toggle" id="map-layer-toggle">
         <button class="primary" id="btn-toggle-result-layer" type="button">Base map only</button>
         <div class="toggle-state" id="result-layer-state">SUHI results visible</div>
+      </div>
+
+      <div class="basemap-control" id="basemap-control">
+        <label for="basemap-select">Base map</label>
+        <select id="basemap-select">
+          <option value="googleSatellite">Google Satellite</option>
+          <option value="googleHybrid">Google Hybrid</option>
+          <option value="cartoDark">CARTO Dark</option>
+          <option value="osmStandard">OpenStreetMap Standard</option>
+          <option value="esriWorldImagery">Esri World Imagery</option>
+        </select>
+        <div class="basemap-note">For public use, verify the selected provider's terms and attribution requirements.</div>
       </div>
 
       <div class="legend-card">
@@ -750,6 +796,7 @@
       noDataThreshold: -999,
       mapCenter: [45.4642, 9.1900],
       mapZoom: 11,
+      defaultBaseMap: "googleSatellite",
 
       // Add future methods here. Make sure folder and fileToken match your actual filenames.
       methods: {
@@ -823,6 +870,9 @@
       overlay: null,
       overlayCanvasUrl: null,
       resultLayerVisible: true,
+      baseLayers: {},
+      currentBaseLayer: null,
+      currentBaseMapKey: null,
       marker: null,
       lastPixel: null,
       playing: false,
@@ -840,10 +890,35 @@
 
     L.control.zoom({ position: "topright" }).addTo(map);
 
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-      maxZoom: 19
-    }).addTo(map);
+    const baseLayers = {
+      googleSatellite: L.tileLayer("https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
+        subdomains: ["mt0", "mt1", "mt2", "mt3"],
+        attribution: "Imagery &copy; Google",
+        maxZoom: 20
+      }),
+      googleHybrid: L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
+        subdomains: ["mt0", "mt1", "mt2", "mt3"],
+        attribution: "Imagery &copy; Google",
+        maxZoom: 20
+      }),
+      cartoDark: L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+        maxZoom: 19
+      }),
+      osmStandard: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "&copy; OpenStreetMap contributors",
+        maxZoom: 19
+      }),
+      esriWorldImagery: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+        attribution: "Tiles &copy; Esri",
+        maxZoom: 19
+      })
+    };
+
+    state.baseLayers = baseLayers;
+    state.currentBaseMapKey = CONFIG.defaultBaseMap;
+    state.currentBaseLayer = baseLayers[CONFIG.defaultBaseMap] || baseLayers.cartoDark;
+    state.currentBaseLayer.addTo(map);
 
     const chart = echarts.init(document.getElementById("chart"));
     initChart();
@@ -861,6 +936,27 @@
 
     function hideStatus() {
       $("status-box").classList.remove("show");
+    }
+
+    function switchBaseMap(baseMapKey) {
+      const nextLayer = state.baseLayers[baseMapKey];
+      if (!nextLayer || nextLayer === state.currentBaseLayer) return;
+
+      if (state.currentBaseLayer && map.hasLayer(state.currentBaseLayer)) {
+        map.removeLayer(state.currentBaseLayer);
+      }
+
+      state.currentBaseLayer = nextLayer;
+      state.currentBaseMapKey = baseMapKey;
+      state.currentBaseLayer.addTo(map);
+
+      // Keep the SUHI raster above the new base map.
+      if (state.overlay && state.resultLayerVisible) {
+        state.overlay.bringToFront();
+      }
+      if (state.marker && state.resultLayerVisible) {
+        state.marker.bringToFront();
+      }
     }
 
     function formatNumber(v, digits = 2) {
@@ -921,6 +1017,16 @@
       L.DomEvent.disableClickPropagation(layerToggleControl);
       L.DomEvent.disableScrollPropagation(layerToggleControl);
     }
+
+    const basemapControl = $("basemap-control");
+    if (basemapControl) {
+      L.DomEvent.disableClickPropagation(basemapControl);
+      L.DomEvent.disableScrollPropagation(basemapControl);
+    }
+
+    $("basemap-select").value = state.currentBaseMapKey;
+    $("basemap-select").addEventListener("change", (e) => switchBaseMap(e.target.value));
+
     refreshResultLayerToggleUi();
 
     // =====================================================================
