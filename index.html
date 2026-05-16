@@ -445,6 +445,15 @@
       100% { transform: translateX(260%); }
     }
 
+
+    /* Scientific raster display: keep original cells visible, no browser smoothing. */
+    .leaflet-image-layer.suhi-overlay,
+    .suhi-overlay {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      filter: none !important;
+    }
+
     .leaflet-control-attribution {
       background: rgba(15, 23, 42, 0.75) !important;
       color: #cbd5e1 !important;
@@ -519,8 +528,8 @@
 
       <div class="legend-card">
         <div class="legend-title">
-          <strong>SUHI Intensity Legend</strong>
-          <span id="legend-mode">Blue–white–yellow–red</span>
+          <strong>SUHI Actual-value Legend</strong>
+          <span id="legend-mode">Global actual Min–Max</span>
         </div>
         <div id="legend-gradient"></div>
         <div class="legend-labels">
@@ -528,7 +537,7 @@
           <span>0 °C</span>
           <span id="legend-max">-- °C</span>
         </div>
-        <div class="note">Blue indicates a cool-island or negative anomaly; yellow to red indicates intensified urban heating. The legend range changes with the stretch mode.</div>
+        <div class="note">Colors are mapped directly from SUHI values in °C. The default mode uses the full-period actual Min–Max range, with no percentile clipping and no visual interpolation.</div>
       </div>
 
       <div id="timeline-card">
@@ -556,9 +565,9 @@
     <aside id="side-panel">
       <div class="panel-inner">
         <div class="section">
-          <h2 class="section-title">Report Notes <span class="warn">Report Mode</span></h2>
+          <h2 class="section-title">Data Notes <span class="warn">Actual-value Mode</span></h2>
           <p class="intro">
-            This page is designed for paper presentations and project demonstrations. The map shows the spatial distribution of SUHI by year; the timeline controls the displayed band; and the side panel reports data metadata, the clicked pixel time series, and rendering settings. The GeoTIFF is expected to be projected to <b>EPSG:32632 / WGS 84 UTM zone 32N</b> before deployment.
+            This page prioritizes data fidelity over visual enhancement. The raster is rendered with nearest-neighbor display, full opacity, and a full-period actual value range by default. The GeoTIFF is expected to be projected to <b>EPSG:32632 / WGS 84 UTM zone 32N</b> before deployment.
           </p>
         </div>
 
@@ -632,6 +641,7 @@
           <div class="control-row">
             <label for="palette-select">Color palette</label>
             <select id="palette-select">
+              <option value="scientific" selected>Scientific diverging: blue–white–red</option>
               <option value="suhi">Classic SUHI: blue–white–yellow–red</option>
               <option value="coolwarm">Cool–warm contrast: blue–white–red</option>
               <option value="thermal">Enhanced thermal: black–purple–orange–yellow</option>
@@ -641,15 +651,16 @@
             <div class="control-row">
               <label for="stretch-select">Stretch mode</label>
               <select id="stretch-select">
-                <option value="robust" selected>Robust stretch P2–P98</option>
-                <option value="current">Current-year Min–Max</option>
-                <option value="global">Full-period Min–Max</option>
-                <option value="manual">Manual range</option>
+                <option value="global" selected>Full-period actual Min–Max, no clipping</option>
+                <option value="symmetric">Symmetric actual range around 0</option>
+                <option value="current">Current-year actual Min–Max</option>
+                <option value="robust">Robust stretch P2–P98, for visualization only</option>
+                <option value="manual">Fixed manual range</option>
               </select>
             </div>
             <div class="control-row">
               <label for="opacity-slider">Layer opacity</label>
-              <input type="range" id="opacity-slider" min="0.2" max="1" value="0.78" step="0.02" />
+              <input type="range" id="opacity-slider" min="0.2" max="1" value="1" step="0.02" />
             </div>
           </div>
           <div class="two-col">
@@ -666,7 +677,7 @@
             <button id="btn-redraw">Refresh rendering</button>
             <button id="btn-reset-view">Zoom to data extent</button>
           </div>
-          <div class="note">For paper figures and presentations, robust P2–P98 or a fixed manual range is recommended so that outliers do not dominate the visual interpretation.</div>
+          <div class="note">For value-faithful interpretation, keep “Full-period actual Min–Max” or “Symmetric actual range around 0”, opacity = 1, and nearest-neighbor display. Robust stretch is kept only for exploratory visualization.</div>
         </div>
 
         <div class="section">
@@ -960,7 +971,7 @@
       state.sourceUrl = sourceName;
       state.years = Array.from({ length: bands }, (_, i) => CONFIG.startYear + i);
 
-      setStatus("Calculating statistics", "Calculating Min, Max, P2, P98, and mean values for each year to support dynamic legends and robust stretching...");
+      setStatus("Calculating statistics", "Calculating actual Min, Max, full-period extrema, P2/P98, and mean values. The default display uses actual extrema without percentile clipping...");
       computeStats();
       updateHeaderInfo(sourceName);
       setupYearSlider();
@@ -976,6 +987,7 @@
       const globalSample = [];
       let globalMin = Infinity;
       let globalMax = -Infinity;
+      let globalMaxAbs = 0;
       let globalSum = 0;
       let globalCount = 0;
 
@@ -1007,6 +1019,7 @@
         if (count > 0) {
           globalMin = Math.min(globalMin, min);
           globalMax = Math.max(globalMax, max);
+          globalMaxAbs = Math.max(globalMaxAbs, Math.abs(min), Math.abs(max));
           globalSum += sum;
           globalCount += count;
           globalSample.push(...sample.filter((_, idx) => idx % Math.max(1, Math.floor(sample.length / 1200)) === 0));
@@ -1018,14 +1031,16 @@
       state.globalStats = {
         min: globalMin,
         max: globalMax,
+        maxAbs: globalMaxAbs,
         mean: globalCount ? globalSum / globalCount : NaN,
         count: globalCount,
         p2: percentileFromSorted(globalSample, 0.02),
         p98: percentileFromSorted(globalSample, 0.98)
       };
 
-      $("manual-min").value = Math.floor(state.globalStats.p2 * 10) / 10;
-      $("manual-max").value = Math.ceil(state.globalStats.p98 * 10) / 10;
+      // Default manual range uses real full-period extrema, not percentile clipping.
+      $("manual-min").value = Math.floor(state.globalStats.min * 10) / 10;
+      $("manual-max").value = Math.ceil(state.globalStats.max * 10) / 10;
     }
 
     function percentileFromSorted(sortedValues, p) {
@@ -1061,12 +1076,17 @@
       if (mode === "manual") {
         return {
           min: parseFloat($("manual-min").value),
-          max: parseFloat($("manual-max").value)
+          max: parseFloat($("manual-max").value),
+          label: "Fixed manual range"
         };
       }
-      if (mode === "current") return { min: bandStats.min, max: bandStats.max };
-      if (mode === "global") return { min: globalStats.min, max: globalStats.max };
-      return { min: bandStats.p2, max: bandStats.p98 };
+      if (mode === "current") return { min: bandStats.min, max: bandStats.max, label: "Current-year actual Min–Max" };
+      if (mode === "symmetric") {
+        const m = globalStats.maxAbs;
+        return { min: -m, max: m, label: "Symmetric actual range around 0" };
+      }
+      if (mode === "robust") return { min: bandStats.p2, max: bandStats.p98, label: "Robust P2–P98, visualization only" };
+      return { min: globalStats.min, max: globalStats.max, label: "Full-period actual Min–Max, no clipping" };
     }
 
     function renderYear(year, force = false) {
@@ -1083,6 +1103,7 @@
       canvas.width = state.width;
       canvas.height = state.height;
       const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = false;
       const imageData = ctx.createImageData(state.width, state.height);
       const pixels = imageData.data;
       const band = state.rasters[bandIndex];
@@ -1113,14 +1134,22 @@
         className: "suhi-overlay"
       }).addTo(map);
 
+      const overlayImg = state.overlay.getElement();
+      if (overlayImg) {
+        overlayImg.style.imageRendering = "pixelated";
+        overlayImg.style.filter = "none";
+      }
+
       state.overlayCanvasUrl = url;
-      updateLegend(range.min, range.max, palette);
+      updateLegend(range.min, range.max, palette, range.label);
       updateCurrentPixelMetric();
       if (state.lastPixel) updateChartForPixel(state.lastPixel.x, state.lastPixel.y, state.lastPixel.lat, state.lastPixel.lng, false);
     }
 
     function valueToRgba(v, min, max, palette) {
       if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return [255, 255, 255, 0];
+
+      const alpha = 255;
 
       if (palette === "thermal") {
         const t = clamp((v - min) / (max - min), 0, 1);
@@ -1130,28 +1159,28 @@
           [0.52, [220, 38, 38]],
           [0.76, [249, 115, 22]],
           [1.00, [254, 240, 138]]
-        ], 238);
+        ], alpha);
       }
 
-      // SUHI and coolwarm palettes use 0 °C as the semantic center.
+      // Scientific, SUHI, and coolwarm palettes use 0 °C as the semantic center.
       if (v < 0 && min < 0) {
         const t = clamp((v - min) / (0 - min), 0, 1);
-        if (palette === "coolwarm") {
-          return interpolateStops(t, [[0, [37, 99, 235]], [1, [248, 250, 252]]], 238);
+        if (palette === "coolwarm" || palette === "scientific") {
+          return interpolateStops(t, [[0, [37, 99, 235]], [1, [248, 250, 252]]], alpha);
         }
-        return interpolateStops(t, [[0, [30, 64, 175]], [0.55, [56, 189, 248]], [1, [248, 250, 252]]], 238);
+        return interpolateStops(t, [[0, [30, 64, 175]], [0.55, [56, 189, 248]], [1, [248, 250, 252]]], alpha);
       }
 
       if (v >= 0 && max > 0) {
         const t = clamp(v / max, 0, 1);
-        if (palette === "coolwarm") {
-          return interpolateStops(t, [[0, [248, 250, 252]], [1, [185, 28, 28]]], 238);
+        if (palette === "coolwarm" || palette === "scientific") {
+          return interpolateStops(t, [[0, [248, 250, 252]], [1, [185, 28, 28]]], alpha);
         }
-        return interpolateStops(t, [[0, [248, 250, 252]], [0.35, [254, 240, 138]], [0.72, [239, 68, 68]], [1, [127, 29, 29]]], 238);
+        return interpolateStops(t, [[0, [248, 250, 252]], [0.35, [254, 240, 138]], [0.72, [239, 68, 68]], [1, [127, 29, 29]]], alpha);
       }
 
       const t = clamp((v - min) / (max - min), 0, 1);
-      return interpolateStops(t, [[0, [30, 64, 175]], [0.5, [248, 250, 252]], [1, [185, 28, 28]]], 238);
+      return interpolateStops(t, [[0, [30, 64, 175]], [0.5, [248, 250, 252]], [1, [185, 28, 28]]], alpha);
     }
 
     function interpolateStops(t, stops, alpha = 255) {
@@ -1176,20 +1205,20 @@
       return Math.max(min, Math.min(max, v));
     }
 
-    function updateLegend(min, max, palette) {
+    function updateLegend(min, max, palette, rangeLabel = "") {
       $("legend-min").textContent = `${formatNumber(min, 2)} °C`;
       $("legend-max").textContent = `${formatNumber(max, 2)} °C`;
       const legend = $("legend-gradient");
       const mode = $("legend-mode");
       if (palette === "thermal") {
         legend.style.background = "linear-gradient(90deg, #0f172a, #581c87, #dc2626, #f97316, #fef08a)";
-        mode.textContent = "Enhanced thermal";
-      } else if (palette === "coolwarm") {
+        mode.textContent = rangeLabel || "Enhanced thermal";
+      } else if (palette === "coolwarm" || palette === "scientific") {
         legend.style.background = "linear-gradient(90deg, #2563eb, #f8fafc, #b91c1c)";
-        mode.textContent = "Blue–white–red";
+        mode.textContent = rangeLabel || "Scientific diverging";
       } else {
         legend.style.background = "linear-gradient(90deg, #1e40af, #38bdf8, #f8fafc, #fef08a, #ef4444, #7f1d1d)";
-        mode.textContent = "Blue–white–yellow–red";
+        mode.textContent = rangeLabel || "Classic SUHI";
       }
     }
 
@@ -1310,7 +1339,7 @@
         backgroundColor: "transparent",
         title: {
           text: "Pixel-level SUHI interannual curve",
-          subtext: `WGS84 ${lat.toFixed(4)}, ${lng.toFixed(4)} | Mean ${formatNumber(mean, 2)} °C | Slope ${formatNumber(slope, 4)} °C/yr`,
+          subtext: `Raw annual band values | WGS84 ${lat.toFixed(4)}, ${lng.toFixed(4)} | Mean ${formatNumber(mean, 2)} °C | Slope ${formatNumber(slope, 4)} °C/yr`,
           left: "center",
           textStyle: { color: "#e2e8f0", fontSize: 14, fontWeight: 700 },
           subtextStyle: { color: "#94a3b8", fontSize: 11 }
@@ -1344,17 +1373,11 @@
           name: "SUHI",
           type: "line",
           data: values,
-          smooth: true,
+          smooth: false,
           connectNulls: false,
-          symbolSize: 8,
-          lineStyle: { width: 3, color: "#fb7185" },
-          itemStyle: { color: "#38bdf8", borderColor: "#ffffff", borderWidth: 1.5 },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: "rgba(251, 113, 133, 0.42)" },
-              { offset: 1, color: "rgba(251, 113, 133, 0.02)" }
-            ])
-          },
+          symbolSize: 7,
+          lineStyle: { width: 2.5, color: "#fb7185" },
+          itemStyle: { color: "#38bdf8", borderColor: "#ffffff", borderWidth: 1.2 },
           markLine: {
             silent: true,
             symbol: "none",
@@ -1363,14 +1386,6 @@
             data: [
               { yAxis: 0, name: "0°C" },
               { xAxis: currentYear, name: "Current year" }
-            ]
-          },
-          markPoint: {
-            symbolSize: 48,
-            label: { color: "#0f172a", fontWeight: 700 },
-            data: [
-              { type: "max", name: "Max" },
-              { type: "min", name: "Min" }
             ]
           }
         }]
