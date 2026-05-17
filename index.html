@@ -1,1721 +1,210 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Milan SUHI Data Cube Interactive Explorer</title>
-
-  <!-- Leaflet: map display -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- GeoTIFF.js: browser-side reading of multi-band GeoTIFF files -->
-  <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
-
-  <!-- Proj4js: coordinate transformation between EPSG:32632 and WGS84 -->
-  <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
-
-  <!-- ECharts: report-style time-series charts -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
-
-  <style>
-    :root {
-      --bg: #0b1020;
-      --panel: rgba(14, 20, 38, 0.92);
-      --panel-solid: #111827;
-      --card: rgba(255, 255, 255, 0.075);
-      --card-border: rgba(255, 255, 255, 0.12);
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --accent: #ef4444;
-      --accent-2: #38bdf8;
-      --warning: #f59e0b;
-      --good: #22c55e;
-      --shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
-    }
-
-    * { box-sizing: border-box; }
-
-    html, body {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      overflow: hidden;
-    }
-
-    #app {
-      display: grid;
-      grid-template-columns: minmax(620px, 1fr) 460px;
-      grid-template-rows: 72px 1fr;
-      height: 100vh;
-      width: 100vw;
-    }
-
-    header {
-      grid-column: 1 / -1;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 18px;
-      padding: 0 22px;
-      background: linear-gradient(90deg, #0f172a 0%, #111827 45%, #1f2937 100%);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-      z-index: 1002;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      min-width: 0;
-    }
-
-    .brand-badge {
-      width: 42px;
-      height: 42px;
-      border-radius: 14px;
-      display: grid;
-      place-items: center;
-      background: radial-gradient(circle at 30% 25%, #fde68a, #ef4444 46%, #7f1d1d 100%);
-      box-shadow: 0 10px 30px rgba(239, 68, 68, 0.45);
-      font-size: 22px;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 20px;
-      letter-spacing: 0.04em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .subtitle {
-      margin-top: 4px;
-      font-size: 12px;
-      color: var(--muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .header-stats {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-
-    .pill {
-      padding: 8px 11px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.06);
-      font-size: 12px;
-      color: #e2e8f0;
-      backdrop-filter: blur(8px);
-    }
-
-    #map-wrap {
-      position: relative;
-      min-width: 0;
-      min-height: 0;
-    }
-
-    #map {
-      width: 100%;
-      height: 100%;
-      background: #020617;
-    }
-
-    #side-panel {
-      min-height: 0;
-      overflow: hidden;
-      background: var(--panel-solid);
-      border-left: 1px solid rgba(255, 255, 255, 0.12);
-      display: flex;
-      flex-direction: column;
-      z-index: 1001;
-    }
-
-    .panel-inner {
-      padding: 18px;
-      overflow-y: auto;
-      height: 100%;
-    }
-
-    .section {
-      border: 1px solid var(--card-border);
-      border-radius: 18px;
-      background: var(--card);
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.20);
-      padding: 14px;
-      margin-bottom: 14px;
-    }
-
-    .section-title {
-      margin: 0 0 10px 0;
-      font-size: 14px;
-      letter-spacing: 0.03em;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .intro {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.65;
-      font-size: 13px;
-    }
-
-    .metric-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-
-    .metric {
-      padding: 12px;
-      border-radius: 14px;
-      background: rgba(15, 23, 42, 0.72);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      min-height: 74px;
-    }
-
-    .metric .label {
-      color: var(--muted);
-      font-size: 11px;
-      margin-bottom: 7px;
-    }
-
-    .metric .value {
-      font-size: 18px;
-      font-weight: 750;
-      line-height: 1.2;
-      color: var(--text);
-      word-break: break-word;
-    }
-
-    .metric .value.coord-value {
-      font-size: 12px;
-      line-height: 1.45;
-      font-weight: 650;
-    }
-
-    .metric .unit {
-      font-size: 12px;
-      color: var(--muted);
-      margin-left: 3px;
-    }
-
-    #chart {
-      width: 100%;
-      height: 360px;
-    }
-
-    .control-row {
-      margin: 10px 0;
-    }
-
-    label {
-      display: block;
-      color: #cbd5e1;
-      font-size: 12px;
-      margin-bottom: 6px;
-    }
-
-    input[type="text"], input[type="number"], select {
-      width: 100%;
-      height: 36px;
-      color: var(--text);
-      background: rgba(2, 6, 23, 0.82);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 12px;
-      padding: 0 10px;
-      outline: none;
-    }
-
-    input[type="file"] {
-      width: 100%;
-      color: #cbd5e1;
-      font-size: 12px;
-    }
-
-    input[type="range"] {
-      width: 100%;
-      accent-color: var(--accent);
-    }
-
-    .two-col {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-
-    .three-col {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 10px;
-    }
-
-    .button-row {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-
-    button {
-      border: none;
-      border-radius: 12px;
-      padding: 9px 12px;
-      cursor: pointer;
-      color: white;
-      background: rgba(255, 255, 255, 0.12);
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
-      font-weight: 650;
-      font-size: 12px;
-    }
-
-    button:hover {
-      transform: translateY(-1px);
-      background: rgba(255, 255, 255, 0.18);
-      border-color: rgba(255, 255, 255, 0.22);
-    }
-
-    button.primary {
-      background: linear-gradient(135deg, #ef4444, #f97316);
-      border: none;
-      box-shadow: 0 12px 28px rgba(239, 68, 68, 0.26);
-    }
-
-    button.secondary {
-      background: linear-gradient(135deg, #0284c7, #06b6d4);
-      border: none;
-      box-shadow: 0 12px 28px rgba(14, 165, 233, 0.20);
-    }
-
-    button:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    #timeline-card {
-      position: absolute;
-      left: 22px;
-      right: 22px;
-      bottom: 24px;
-      z-index: 900;
-      max-width: 760px;
-      background: rgba(15, 23, 42, 0.86);
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(16px);
-      border-radius: 22px;
-      padding: 14px 16px;
-    }
-
-    .timeline-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 8px;
-    }
-
-    .year-big {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-    }
-
-    #year-label {
-      font-size: 34px;
-      line-height: 1;
-      font-weight: 800;
-      color: #fb7185;
-      letter-spacing: -0.04em;
-    }
-
-    .year-big span:last-child {
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .map-layer-toggle {
-      position: absolute;
-      right: 22px;
-      top: 82px;
-      z-index: 905;
-      min-width: 172px;
-      padding: 10px;
-      border-radius: 16px;
-      background: rgba(15, 23, 42, 0.86);
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(16px);
-    }
-
-    .map-layer-toggle button {
-      width: 100%;
-      margin-bottom: 7px;
-    }
-
-    .map-layer-toggle .toggle-state {
-      color: var(--muted);
-      font-size: 11px;
-      line-height: 1.35;
-      text-align: center;
-    }
-
-    .basemap-control {
-      position: absolute;
-      right: 22px;
-      bottom: 24px;
-      top: auto;
-      z-index: 920;
-      min-width: 220px;
-      padding: 10px;
-      border-radius: 16px;
-      background: rgba(15, 23, 42, 0.86);
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(16px);
-    }
-
-    .basemap-control label {
-      margin-bottom: 6px;
-      color: #e2e8f0;
-      font-size: 12px;
-      font-weight: 650;
-    }
-
-    .basemap-control select {
-      height: 34px;
-      font-size: 12px;
-    }
-
-    .basemap-note {
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: 10px;
-      line-height: 1.35;
-    }
-
-    .result-ui-hidden {
-      display: none !important;
-    }
-
-    .legend-card {
-      position: absolute;
-      left: 22px;
-      top: 22px;
-      z-index: 900;
-      width: 300px;
-      background: rgba(15, 23, 42, 0.84);
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 18px;
-      padding: 12px;
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(16px);
-    }
-
-    .legend-title {
-      display: flex;
-      justify-content: space-between;
-      font-size: 12px;
-      color: #cbd5e1;
-      margin-bottom: 8px;
-      gap: 8px;
-    }
-
-    #legend-gradient {
-      width: 100%;
-      height: 12px;
-      border-radius: 999px;
-      background: linear-gradient(90deg, #2563eb, #ffffff, #facc15, #dc2626, #7f1d1d);
-      border: 1px solid rgba(255, 255, 255, 0.22);
-    }
-
-    .legend-labels {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      color: #cbd5e1;
-      font-size: 11px;
-      margin-top: 6px;
-    }
-
-    .legend-labels span:nth-child(2) { text-align: center; }
-    .legend-labels span:nth-child(3) { text-align: right; }
-
-    .status {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      z-index: 950;
-      transform: translate(-50%, -50%);
-      width: min(520px, 86vw);
-      padding: 18px;
-      border-radius: 22px;
-      background: rgba(15, 23, 42, 0.90);
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(18px);
-      display: none;
-    }
-
-    .status.show { display: block; }
-
-    .status h3 {
-      margin: 0 0 8px 0;
-      font-size: 16px;
-    }
-
-    .status p {
-      margin: 0;
-      color: var(--muted);
-      line-height: 1.6;
-      font-size: 13px;
-    }
-
-    .progress-wrap {
-      margin-top: 12px;
-      height: 8px;
-      width: 100%;
-      background: rgba(255, 255, 255, 0.10);
-      border-radius: 999px;
-      overflow: hidden;
-    }
-
-    .progress-bar {
-      height: 100%;
-      width: 45%;
-      background: linear-gradient(90deg, #38bdf8, #ef4444, #f59e0b);
-      border-radius: 999px;
-      animation: loading 1.35s infinite ease-in-out;
-    }
-
-    @keyframes loading {
-      0% { transform: translateX(-110%); }
-      100% { transform: translateX(260%); }
-    }
-
-
-    /* Scientific raster display: keep original cells visible, no browser smoothing. */
-    .leaflet-image-layer.suhi-overlay,
-    .suhi-overlay {
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-      filter: none !important;
-    }
-
-    .leaflet-control-attribution {
-      background: rgba(15, 23, 42, 0.75) !important;
-      color: #cbd5e1 !important;
-    }
-    .leaflet-control-attribution a { color: #93c5fd !important; }
-
-    .leaflet-popup-content-wrapper, .leaflet-popup-tip {
-      background: #0f172a;
-      color: #e2e8f0;
-      border: 1px solid rgba(255,255,255,0.14);
-    }
-
-    .note {
-      margin-top: 8px;
-      color: var(--muted);
-      font-size: 11px;
-      line-height: 1.55;
-    }
-
-    .hot { color: #fb7185; }
-    .cool { color: #38bdf8; }
-    .warn { color: #fbbf24; }
-    .ok { color: #86efac; }
-
-    @media (max-width: 1060px) {
-      #app {
-        grid-template-columns: 1fr;
-        grid-template-rows: 72px 58vh 42vh;
-      }
-      #side-panel {
-        border-left: 0;
-        border-top: 1px solid rgba(255, 255, 255, 0.12);
-      }
-      #chart { height: 300px; }
-      .legend-card { width: 270px; }
-      #timeline-card { max-width: none; }
-      .header-stats { display: none; }
-      .basemap-control {
-        right: 12px;
-        bottom: 118px;
-        min-width: 200px;
-      }
-    }
-
-    @media (max-width: 680px) {
-      header { padding: 0 12px; }
-      h1 { font-size: 15px; }
-      .subtitle { display: none; }
-      .legend-card { left: 12px; right: 12px; width: auto; }
-      .map-layer-toggle { right: 12px; top: 72px; min-width: 150px; }
-      .basemap-control { right: 12px; bottom: 118px; top: auto; min-width: 180px; }
-      #timeline-card { left: 12px; right: 12px; bottom: 12px; }
-      #year-label { font-size: 28px; }
-      .metric-grid, .two-col, .three-col { grid-template-columns: 1fr; }
-    }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Milan SUHI Data Cube Interactive Explorer</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+
+<style>
+:root{
+  --bg:#0b1020;
+  --panel:#111827;
+  --text:#f8fafc;
+  --muted:#94a3b8;
+  --shadow:0 24px 70px rgba(0,0,0,0.42);
+}
+
+*{box-sizing:border-box;}
+
+html,body{
+  width:100%;
+  height:100%;
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  overflow:hidden;
+  font-family:Inter,system-ui;
+}
+
+/* =========================
+   ✅ ① 自适应主布局优化
+========================= */
+#app{
+  display:grid;
+  grid-template-columns: minmax(0,1fr) minmax(320px,420px);
+  grid-template-rows:72px 1fr;
+  width:100vw;
+  height:100vh;
+}
+
+/* header */
+header{
+  grid-column:1/-1;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 18px;
+  background:#111827;
+}
+
+/* map */
+#map-wrap{position:relative;min-width:0;}
+#map{width:100%;height:100%;}
+
+/* side */
+#side-panel{
+  background:var(--panel);
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+}
+
+/* =========================
+   timeline card（核心优化）
+========================= */
+#timeline-card{
+  position:absolute;
+  left:18px;
+  right:18px;
+  bottom:18px;
+
+  width:min(760px,calc(100vw - 36px));
+  background:rgba(15,23,42,0.86);
+  border-radius:18px;
+  box-shadow:var(--shadow);
+  padding:12px 14px;
+}
+
+/* ✔ year 自适应字体 */
+#year-label{
+  font-size:clamp(22px,3vw,34px);
+  font-weight:800;
+  color:#fb7185;
+}
+
+/* =========================
+   basemap 控件优化（重点）
+========================= */
+.basemap-control{
+  position:absolute;
+  right:18px;
+  bottom:24px;
+
+  width:fit-content;
+  max-width:220px;
+  min-width:unset;
+
+  padding:10px;
+  border-radius:14px;
+  background:rgba(15,23,42,0.86);
+  box-shadow:var(--shadow);
+}
+
+.basemap-control select{
+  width:auto;
+  min-width:160px;
+  max-width:100%;
+}
+
+/* =========================
+   legend
+========================= */
+.legend-card{
+  position:absolute;
+  left:18px;
+  top:18px;
+  width:280px;
+  background:rgba(15,23,42,0.85);
+  border-radius:16px;
+  padding:12px;
+}
+
+/* =========================
+   map toggle
+========================= */
+.map-layer-toggle{
+  position:absolute;
+  right:18px;
+  top:78px;
+  min-width:160px;
+}
+
+/* =========================
+   responsive
+========================= */
+@media(max-width:1060px){
+  #app{
+    grid-template-columns:1fr;
+    grid-template-rows:72px 55vh 45vh;
+  }
+}
+
+@media(max-width:680px){
+  #timeline-card{
+    left:10px;
+    right:10px;
+    bottom:10px;
+  }
+
+  .basemap-control{
+    right:10px;
+    bottom:110px;
+    max-width:180px;
+  }
+
+  #year-label{
+    font-size:clamp(20px,6vw,28px);
+  }
+
+  .legend-card{
+    left:10px;
+    right:10px;
+    width:auto;
+  }
+}
+
+</style>
 </head>
 
 <body>
-  <div id="app">
-    <header>
-      <div class="brand">
-        <div class="brand-badge">🔥</div>
-        <div>
-          <h1>Milan SUHI Remote Sensing Data Cube Explorer</h1>
-          <div class="subtitle">Spatial pattern × interannual dynamics × pixel-level time series: click any pixel to inspect SUHI evolution from 2003 to 2025</div>
-        </div>
-      </div>
-      <div class="header-stats">
-        <div class="pill" id="header-bands">Bands: --</div>
-        <div class="pill" id="header-size">Size: --</div>
-        <div class="pill" id="header-crs">CRS: EPSG:32632</div>
-        <div class="pill" id="header-bbox">BBox: --</div>
-      </div>
-    </header>
+<div id="app">
 
-    <main id="map-wrap">
-      <div id="map"></div>
+<header>
+  <div>Milan SUHI Explorer</div>
+</header>
 
-      <div class="map-layer-toggle" id="map-layer-toggle">
-        <button class="primary" id="btn-toggle-result-layer" type="button">Base map only</button>
-        <div class="toggle-state" id="result-layer-state">SUHI results visible</div>
-      </div>
+<main id="map-wrap">
+  <div id="map"></div>
 
-      <div class="basemap-control" id="basemap-control">
-        <label for="basemap-select">Base map</label>
-        <select id="basemap-select">
-          <option value="googleSatellite">Google Satellite</option>
-          <option value="googleHybrid">Google Hybrid</option>
-          <option value="cartoDark">CARTO Dark</option>
-          <option value="osmStandard">OpenStreetMap Standard</option>
-          <option value="esriWorldImagery">Esri World Imagery</option>
-        </select>
-        <div class="basemap-note">For public use, verify the selected provider's terms and attribution requirements.</div>
-      </div>
-
-      <div class="legend-card">
-        <div class="legend-title">
-          <strong>SUHI Actual-value Legend</strong>
-          <span id="legend-mode">Global actual Min–Max</span>
-        </div>
-        <div id="legend-gradient"></div>
-        <div class="legend-labels">
-          <span id="legend-min">-- °C</span>
-          <span>0 °C</span>
-          <span id="legend-max">-- °C</span>
-        </div>
-        <div class="note">Colors are mapped directly from SUHI values in °C. The default mode uses the full-period actual Min–Max range, with no percentile clipping and no visual interpolation.</div>
-      </div>
-
-      <div id="timeline-card">
-        <div class="timeline-top">
-          <div class="year-big">
-            <span id="year-label">----</span>
-            <span>Displayed year</span>
-          </div>
-          <div class="button-row">
-            <button id="btn-prev">Previous</button>
-            <button class="primary" id="btn-play">Play</button>
-            <button id="btn-next">Next</button>
-          </div>
-        </div>
-        <input type="range" id="year-slider" min="2003" max="2025" value="2024" step="1" />
-      </div>
-
-      <div class="status show" id="status-box">
-        <h3 id="status-title">Loading SUHI Data Cube</h3>
-        <p id="status-text">The first load reads a multi-band GeoTIFF and calculates the statistics for each year. Open this page from a local web server or GitHub Pages to avoid browser restrictions caused by file:// access.</p>
-        <div class="progress-wrap"><div class="progress-bar"></div></div>
-      </div>
-    </main>
-
-    <aside id="side-panel">
-      <div class="panel-inner">
-        <div class="section">
-          <h2 class="section-title">Data Notes <span class="warn">Actual-value Mode</span></h2>
-          <p class="intro">
-            This page prioritizes data fidelity over visual enhancement. The raster is rendered with nearest-neighbor display, full opacity, and a full-period actual value range by default. The GeoTIFF is expected to be projected to <b>EPSG:32632 / WGS 84 UTM zone 32N</b> before deployment.
-          </p>
-        </div>
-
-        <div class="section">
-          <h2 class="section-title">Data Selector <span class="cool">GitHub Pages</span></h2>
-          <div class="control-row">
-            <label for="method-select">Rural-background method</label>
-            <select id="method-select"></select>
-          </div>
-          <div class="two-col">
-            <div class="control-row">
-              <label for="sensor-select">Satellite sensor</label>
-              <select id="sensor-select">
-                <option value="Terra">Terra MODIS</option>
-                <option value="Aqua" selected>Aqua MODIS</option>
-              </select>
-            </div>
-            <div class="control-row">
-              <label for="overpass-select">Overpass time</label>
-              <select id="overpass-select">
-                <option value="Day" selected>Daytime</option>
-                <option value="Night">Nighttime</option>
-              </select>
-            </div>
-          </div>
-          <div class="control-row">
-            <label for="period-select">Temporal aggregation</label>
-            <select id="period-select"></select>
-          </div>
-          <div class="button-row">
-            <button class="primary" id="btn-load-selection">Load selected dataset</button>
-          </div>
-          <div class="note">
-            The selected path is written automatically into the GeoTIFF URL field below. SUE, MEA-R, and MEA-S are handled through method-specific folder and filename tokens in the CONFIG block.
-          </div>
-        </div>
-
-        <div class="section">
-          <h2 class="section-title">Selected Pixel Status <span id="click-state" class="cool">Waiting for click</span></h2>
-          <div class="metric-grid">
-            <div class="metric">
-              <div class="label">Coordinates</div>
-              <div class="value coord-value" id="metric-coord">--</div>
-            </div>
-            <div class="metric">
-              <div class="label">Current-year SUHI</div>
-              <div class="value" id="metric-value">--<span class="unit">°C</span></div>
-            </div>
-            <div class="metric">
-              <div class="label">Long-term mean</div>
-              <div class="value" id="metric-mean">--<span class="unit">°C</span></div>
-            </div>
-            <div class="metric">
-              <div class="label">Long-term slope</div>
-              <div class="value" id="metric-slope">--<span class="unit">°C/yr</span></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="section">
-          <h2 class="section-title">Pixel-level SUHI Curve, 2003–2025</h2>
-          <div id="chart"></div>
-          <div class="button-row">
-            <button class="secondary" id="btn-download-csv" disabled>Download pixel CSV</button>
-            <button id="btn-clear-point" disabled>Clear pixel</button>
-          </div>
-        </div>
-
-        <div class="section">
-          <h2 class="section-title">Rendering Controls</h2>
-          <div class="control-row">
-            <label for="palette-select">Color palette</label>
-            <select id="palette-select">
-              <option value="scientific">Scientific diverging: blue–white–red</option>
-              <option value="suhi" selected>Classic SUHI: blue–white–yellow–red</option>
-              <option value="coolwarm">Cool–warm contrast: blue–white–red</option>
-              <option value="thermal">Enhanced thermal: black–purple–orange–yellow</option>
-            </select>
-          </div>
-          <div class="two-col">
-            <div class="control-row">
-              <label for="stretch-select">Stretch mode</label>
-              <select id="stretch-select">
-                <option value="global" selected>Full-period actual Min–Max, no clipping</option>
-                <option value="symmetric">Symmetric actual range around 0</option>
-                <option value="current">Current-year actual Min–Max</option>
-                <option value="robust">Robust stretch P2–P98, for visualization only</option>
-                <option value="manual">Fixed manual range</option>
-              </select>
-            </div>
-            <div class="control-row">
-              <label for="opacity-slider">Layer opacity</label>
-              <input type="range" id="opacity-slider" min="0.2" max="1" value="1" step="0.02" />
-            </div>
-          </div>
-          <div class="two-col">
-            <div class="control-row">
-              <label for="manual-min">Manual minimum, °C</label>
-              <input type="number" id="manual-min" value="-4" step="0.1" />
-            </div>
-            <div class="control-row">
-              <label for="manual-max">Manual maximum, °C</label>
-              <input type="number" id="manual-max" value="6" step="0.1" />
-            </div>
-          </div>
-          <div class="button-row">
-            <button id="btn-redraw">Refresh rendering</button>
-            <button id="btn-reset-view">Zoom to data extent</button>
-          </div>
-          <div class="note">For value-faithful interpretation, keep “Full-period actual Min–Max” or “Symmetric actual range around 0”, opacity = 1, and nearest-neighbor display. Robust stretch is kept only for exploratory visualization.</div>
-        </div>
-
-        <div class="section">
-          <h2 class="section-title">Data Source</h2>
-          <div class="control-row">
-            <label for="tif-url">GeoTIFF URL / GitHub Pages relative path</label>
-            <input type="text" id="tif-url" value="" />
-          </div>
-          <div class="button-row">
-            <button class="primary" id="btn-load-url">Load URL</button>
-          </div>
-          <div class="control-row">
-            <label for="local-file">Or load a local multi-band GeoTIFF</label>
-            <input type="file" id="local-file" accept=".tif,.tiff,image/tiff" />
-          </div>
-          <div class="note">
-            Recommended GitHub Pages structure: <b>index.html</b>, <b>.nojekyll</b>, and <b>data/Milan_SUHI_FB_TIF/*.tif</b>. For local preview, run <b>python3 -m http.server 8000</b> and open <b>http://localhost:8000</b>.
-          </div>
-        </div>
-      </div>
-    </aside>
+  <!-- timeline -->
+  <div id="timeline-card">
+    <div>
+      <span id="year-label">2024</span>
+      <span style="color:#94a3b8;font-size:12px;">Displayed year</span>
+    </div>
   </div>
 
-  <script>
-    // =====================================================================
-    // 0. Configuration
-    // =====================================================================
-    const CONFIG = {
-      dataRoot: "data",
-      targetRasterCrs: "EPSG:32632",
-      displayCrs: "EPSG:4326",
-      startYear: 2003,
-      initialYear: 2024,
-      noDataThreshold: -999,
-      mapCenter: [45.4642, 9.1900],
-      mapZoom: 11,
-      defaultBaseMap: "googleSatellite",
-
-      // Add future methods here. Make sure folder and fileToken match your actual filenames.
-      methods: {
-        FB: {
-          label: "Fixed Buffer (FB)",
-          folder: "Milan_SUHI_FB_TIF",
-          fileToken: "FB",
-          contextToken: "urban_background"
-        },
-        SUE: {
-          label: "Simplified Urban-extent (SUE)",
-          folder: "Milan_SUHI_SUE_TIF",
-          fileToken: "SUE",
-          // SUE outputs use "urban" instead of "urban_background" in the filename.
-          contextToken: "urban"
-        },
-        MEAR: {
-          label: "Modified Equal Area–Rural (MEA-R)",
-          folder: "Milan_SUHI_MEA_R_TIF",
-          fileToken: "MEA_R",
-          contextToken: "urban_background"
-        },
-        MEAS: {
-          label: "Modified Equal Area–Suburban (MEA-S)",
-          folder: "Milan_SUHI_MEA_S_TIF",
-          fileToken: "MEA_S",
-          contextToken: "urban_background"
-        }
-      },
-
-      periods: [
-        { value: "annual", label: "Annual" },
-        { value: "spring", label: "Spring" },
-        { value: "summer", label: "Summer" },
-        { value: "autumn", label: "Autumn" },
-        { value: "winter", label: "Winter" },
-        { value: "jun_sep", label: "June–September" },
-        { value: "july", label: "July" },
-        { value: "august", label: "August" },
-        { value: "september", label: "September" }
-      ],
-
-      defaultSelection: {
-        method: "FB",
-        sensor: "Aqua",
-        overpass: "Day",
-        period: "annual"
-      }
-    };
-
-    // EPSG:32632 = WGS 84 / UTM zone 32N. Milan is in UTM zone 32N.
-    proj4.defs("EPSG:32632", "+proj=utm +zone=32 +datum=WGS84 +units=m +no_defs +type=crs");
-
-    // =====================================================================
-    // 1. Global state
-    // =====================================================================
-    const state = {
-      tiff: null,
-      image: null,
-      rasters: [],
-      width: 0,
-      height: 0,
-      bands: 0,
-      bbox: null,             // Native raster bbox: [xmin, ymin, xmax, ymax]
-      rasterCrs: CONFIG.targetRasterCrs,
-      bounds: null,           // Leaflet LatLngBounds for display
-      years: [],
-      bandStats: [],
-      globalStats: null,
-      currentBandIndex: 0,
-      overlay: null,
-      overlayCanvasUrl: null,
-      resultLayerVisible: true,
-      baseLayers: {},
-      currentBaseLayer: null,
-      currentBaseMapKey: null,
-      marker: null,
-      lastPixel: null,
-      playing: false,
-      playTimer: null,
-      sourceUrl: null
-    };
-
-    // =====================================================================
-    // 2. Map and chart initialization
-    // =====================================================================
-    const map = L.map("map", {
-      zoomControl: false,
-      preferCanvas: true
-    }).setView(CONFIG.mapCenter, CONFIG.mapZoom);
-
-    L.control.zoom({ position: "topright" }).addTo(map);
-
-    const baseLayers = {
-      googleSatellite: L.tileLayer("https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
-        subdomains: ["mt0", "mt1", "mt2", "mt3"],
-        attribution: "Imagery &copy; Google",
-        maxZoom: 20
-      }),
-      googleHybrid: L.tileLayer("https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}", {
-        subdomains: ["mt0", "mt1", "mt2", "mt3"],
-        attribution: "Imagery &copy; Google",
-        maxZoom: 20
-      }),
-      cartoDark: L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-        maxZoom: 19
-      }),
-      osmStandard: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "&copy; OpenStreetMap contributors",
-        maxZoom: 19
-      }),
-      esriWorldImagery: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-        attribution: "Tiles &copy; Esri",
-        maxZoom: 19
-      })
-    };
-
-    state.baseLayers = baseLayers;
-    state.currentBaseMapKey = CONFIG.defaultBaseMap;
-    state.currentBaseLayer = baseLayers[CONFIG.defaultBaseMap] || baseLayers.cartoDark;
-    state.currentBaseLayer.addTo(map);
-
-    const chart = echarts.init(document.getElementById("chart"));
-    initChart();
-
-    // =====================================================================
-    // 3. DOM helpers
-    // =====================================================================
-    const $ = (id) => document.getElementById(id);
-
-    function setStatus(title, text, show = true) {
-      $("status-title").textContent = title;
-      $("status-text").innerHTML = text;
-      $("status-box").classList.toggle("show", show);
-    }
-
-    function hideStatus() {
-      $("status-box").classList.remove("show");
-    }
-
-    function switchBaseMap(baseMapKey) {
-      const nextLayer = state.baseLayers[baseMapKey];
-      if (!nextLayer || nextLayer === state.currentBaseLayer) return;
-
-      if (state.currentBaseLayer && map.hasLayer(state.currentBaseLayer)) {
-        map.removeLayer(state.currentBaseLayer);
-      }
-
-      state.currentBaseLayer = nextLayer;
-      state.currentBaseMapKey = baseMapKey;
-      state.currentBaseLayer.addTo(map);
-
-      // Keep the SUHI raster above the new base map.
-      if (state.overlay && state.resultLayerVisible) {
-        state.overlay.bringToFront();
-      }
-      if (state.marker && state.resultLayerVisible) {
-        state.marker.bringToFront();
-      }
-    }
-
-    function formatNumber(v, digits = 2) {
-      return Number.isFinite(v) ? v.toFixed(digits) : "--";
-    }
-
-    function isValidValue(v) {
-      return v !== null && v !== undefined && Number.isFinite(v) && v > CONFIG.noDataThreshold;
-    }
-
-    function applyOverlayDisplayStyle() {
-      if (!state.overlay) return;
-      const overlayImg = state.overlay.getElement();
-      if (overlayImg) {
-        overlayImg.style.imageRendering = "pixelated";
-        overlayImg.style.filter = "none";
-      }
-    }
-
-    function refreshResultLayerToggleUi() {
-      const button = $("btn-toggle-result-layer");
-      const label = $("result-layer-state");
-      if (!button || !label) return;
-      button.textContent = state.resultLayerVisible ? "Base map only" : "Show SUHI results";
-      label.textContent = state.resultLayerVisible ? "SUHI results visible" : "Base map only";
-    }
-
-    function setResultLayerVisibility(visible) {
-      state.resultLayerVisible = Boolean(visible);
-
-      if (state.overlay) {
-        if (state.resultLayerVisible) {
-          if (!map.hasLayer(state.overlay)) state.overlay.addTo(map);
-          state.overlay.setOpacity(parseFloat($("opacity-slider").value));
-          applyOverlayDisplayStyle();
-        } else if (map.hasLayer(state.overlay)) {
-          map.removeLayer(state.overlay);
-        }
-      }
-
-      if (state.marker) {
-        if (state.resultLayerVisible) {
-          if (!map.hasLayer(state.marker)) state.marker.addTo(map);
-        } else if (map.hasLayer(state.marker)) {
-          map.removeLayer(state.marker);
-        }
-      }
-
-      const legend = document.querySelector(".legend-card");
-      if (legend) legend.classList.toggle("result-ui-hidden", !state.resultLayerVisible);
-      $("timeline-card").classList.toggle("result-ui-hidden", !state.resultLayerVisible);
-
-      refreshResultLayerToggleUi();
-    }
-
-    const layerToggleControl = $("map-layer-toggle");
-    if (layerToggleControl) {
-      L.DomEvent.disableClickPropagation(layerToggleControl);
-      L.DomEvent.disableScrollPropagation(layerToggleControl);
-    }
-
-    const basemapControl = $("basemap-control");
-    if (basemapControl) {
-      L.DomEvent.disableClickPropagation(basemapControl);
-      L.DomEvent.disableScrollPropagation(basemapControl);
-    }
-
-    $("basemap-select").value = state.currentBaseMapKey;
-    $("basemap-select").addEventListener("change", (e) => switchBaseMap(e.target.value));
-
-    refreshResultLayerToggleUi();
-
-    // =====================================================================
-    // 4. Dataset selector and URL construction
-    // =====================================================================
-    function populateSelectors() {
-      const methodSelect = $("method-select");
-      methodSelect.innerHTML = Object.entries(CONFIG.methods)
-        .map(([key, method]) => `<option value="${key}">${method.label}</option>`)
-        .join("");
-
-      const periodSelect = $("period-select");
-      periodSelect.innerHTML = CONFIG.periods
-        .map(period => `<option value="${period.value}">${period.label}</option>`)
-        .join("");
-
-      $("method-select").value = CONFIG.defaultSelection.method;
-      $("sensor-select").value = CONFIG.defaultSelection.sensor;
-      $("overpass-select").value = CONFIG.defaultSelection.overpass;
-      $("period-select").value = CONFIG.defaultSelection.period;
-
-      updateTifUrlFromSelection();
-    }
-
-    function getCurrentSelection() {
-      return {
-        method: $("method-select").value,
-        sensor: $("sensor-select").value,
-        overpass: $("overpass-select").value,
-        period: $("period-select").value
-      };
-    }
-
-    function buildTifUrl(selection = getCurrentSelection()) {
-      const method = CONFIG.methods[selection.method];
-      if (!method) throw new Error(`Unknown method code: ${selection.method}`);
-      const contextToken = method.contextToken || "urban_background";
-      const filename = `Milan_pixel_anomaly_${method.fileToken}_${contextToken}_${selection.sensor}_${selection.overpass}_${selection.period}_2003_2025.tif`;
-      return `${CONFIG.dataRoot}/${method.folder}/${filename}`;
-    }
-
-    function updateTifUrlFromSelection() {
-      $("tif-url").value = buildTifUrl();
-    }
-
-    ["method-select", "sensor-select", "overpass-select", "period-select"].forEach(id => {
-      document.addEventListener("change", (event) => {
-        if (event.target && event.target.id === id) updateTifUrlFromSelection();
-      });
-    });
-
-    // =====================================================================
-    // 5. Coordinate transformation helpers
-    // =====================================================================
-    function bboxLooksGeographic(bbox) {
-      const [xmin, ymin, xmax, ymax] = bbox;
-      return xmin >= -180 && xmax <= 180 && ymin >= -90 && ymax <= 90;
-    }
-
-    function detectRasterCrs(bbox) {
-      // If the bbox is in degrees, treat it as WGS84. Otherwise, follow the requested EPSG:32632 display workflow.
-      return bboxLooksGeographic(bbox) ? "EPSG:4326" : CONFIG.targetRasterCrs;
-    }
-
-    function rasterXYToLatLng(x, y, rasterCrs = state.rasterCrs) {
-      if (rasterCrs === "EPSG:4326") return [y, x];
-      const [lng, lat] = proj4(rasterCrs, CONFIG.displayCrs, [x, y]);
-      return [lat, lng];
-    }
-
-    function latLngToRasterXY(lat, lng, rasterCrs = state.rasterCrs) {
-      if (rasterCrs === "EPSG:4326") return [lng, lat];
-      return proj4(CONFIG.displayCrs, rasterCrs, [lng, lat]);
-    }
-
-    function bboxToLeafletBounds(bbox, rasterCrs) {
-      const [xmin, ymin, xmax, ymax] = bbox;
-      if (rasterCrs === "EPSG:4326") {
-        return L.latLngBounds([ymin, xmin], [ymax, xmax]);
-      }
-
-      const corners = [
-        rasterXYToLatLng(xmin, ymin, rasterCrs),
-        rasterXYToLatLng(xmin, ymax, rasterCrs),
-        rasterXYToLatLng(xmax, ymin, rasterCrs),
-        rasterXYToLatLng(xmax, ymax, rasterCrs)
-      ];
-      return L.latLngBounds(corners);
-    }
-
-    function formatCoordinateHTML(lat, lng, pixel) {
-      const [rx, ry] = latLngToRasterXY(lat, lng);
-      if (state.rasterCrs === CONFIG.targetRasterCrs) {
-        return `WGS84: ${lat.toFixed(5)}, ${lng.toFixed(5)}<br>UTM 32N: ${rx.toFixed(1)} m E, ${ry.toFixed(1)} m N<br>Row/Col: ${pixel.y}, ${pixel.x}`;
-      }
-      return `WGS84: ${lat.toFixed(5)}, ${lng.toFixed(5)}<br>Row/Col: ${pixel.y}, ${pixel.x}`;
-    }
-
-    // =====================================================================
-    // 6. Load GeoTIFF
-    // =====================================================================
-    async function loadFromUrl(url) {
-      try {
-        setStatus("Loading dataset", `Reading: <b>${url}</b>`);
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
-        const buffer = await response.arrayBuffer();
-        await loadFromArrayBuffer(buffer, url);
-      } catch (error) {
-        console.error(error);
-        setStatus(
-          "Dataset loading failed",
-          `The GeoTIFF could not be read. Check the path, filename, GitHub Pages deployment folder, and file size.<br><br><b>Error:</b> ${error.message}`,
-          true
-        );
-      }
-    }
-
-    async function loadFromArrayBuffer(buffer, sourceName = "local file") {
-      setStatus("Parsing GeoTIFF", "Parsing the multi-band image, spatial extent, CRS assumption, and raster matrix...");
-
-      const tiff = await GeoTIFF.fromArrayBuffer(buffer);
-      const image = await tiff.getImage();
-      const width = image.getWidth();
-      const height = image.getHeight();
-      const bands = image.getSamplesPerPixel();
-      const bbox = image.getBoundingBox();
-
-      if (!bbox || bbox.length !== 4) {
-        throw new Error("This GeoTIFF does not contain a readable BoundingBox. Please confirm that it is a georeferenced GeoTIFF rather than a plain TIF.");
-      }
-
-      const rasterCrs = detectRasterCrs(bbox);
-      const bounds = bboxToLeafletBounds(bbox, rasterCrs);
-
-      setStatus("Reading raster data", `Image size: ${width} × ${height}; bands: ${bands}. Reading all annual bands...`);
-      const rasters = await image.readRasters({ interleave: false });
-
-      state.tiff = tiff;
-      state.image = image;
-      state.rasters = Array.from(rasters);
-      state.width = width;
-      state.height = height;
-      state.bands = bands;
-      state.bbox = bbox;
-      state.rasterCrs = rasterCrs;
-      state.bounds = bounds;
-      state.sourceUrl = sourceName;
-      state.years = Array.from({ length: bands }, (_, i) => CONFIG.startYear + i);
-
-      setStatus("Calculating statistics", "Calculating actual Min, Max, full-period extrema, P2/P98, and mean values. The default display uses actual extrema without percentile clipping...");
-      computeStats();
-      updateHeaderInfo(sourceName);
-      setupYearSlider();
-
-      const initYear = state.years.includes(CONFIG.initialYear) ? CONFIG.initialYear : state.years[0];
-      renderYear(initYear, true);
-      map.fitBounds(state.bounds, { padding: [22, 22] });
-      hideStatus();
-    }
-
-    function computeStats() {
-      const stats = [];
-      const globalSample = [];
-      let globalMin = Infinity;
-      let globalMax = -Infinity;
-      let globalMaxAbs = 0;
-      let globalSum = 0;
-      let globalCount = 0;
-
-      for (let b = 0; b < state.bands; b++) {
-        const band = state.rasters[b];
-        const total = band.length;
-        const step = Math.max(1, Math.floor(total / 15000));
-        const sample = [];
-        let min = Infinity;
-        let max = -Infinity;
-        let sum = 0;
-        let count = 0;
-
-        for (let i = 0; i < total; i++) {
-          const v = Number(band[i]);
-          if (!isValidValue(v)) continue;
-          if (v < min) min = v;
-          if (v > max) max = v;
-          sum += v;
-          count += 1;
-          if (i % step === 0) sample.push(v);
-        }
-
-        sample.sort((a, b) => a - b);
-        const p2 = percentileFromSorted(sample, 0.02);
-        const p98 = percentileFromSorted(sample, 0.98);
-        stats.push({ min, max, mean: count ? sum / count : NaN, count, p2, p98 });
-
-        if (count > 0) {
-          globalMin = Math.min(globalMin, min);
-          globalMax = Math.max(globalMax, max);
-          globalMaxAbs = Math.max(globalMaxAbs, Math.abs(min), Math.abs(max));
-          globalSum += sum;
-          globalCount += count;
-          globalSample.push(...sample.filter((_, idx) => idx % Math.max(1, Math.floor(sample.length / 1200)) === 0));
-        }
-      }
-
-      globalSample.sort((a, b) => a - b);
-      state.bandStats = stats;
-      state.globalStats = {
-        min: globalMin,
-        max: globalMax,
-        maxAbs: globalMaxAbs,
-        mean: globalCount ? globalSum / globalCount : NaN,
-        count: globalCount,
-        p2: percentileFromSorted(globalSample, 0.02),
-        p98: percentileFromSorted(globalSample, 0.98)
-      };
-
-      // Default manual range uses real full-period extrema, not percentile clipping.
-      $("manual-min").value = Math.floor(state.globalStats.min * 10) / 10;
-      $("manual-max").value = Math.ceil(state.globalStats.max * 10) / 10;
-    }
-
-    function percentileFromSorted(sortedValues, p) {
-      if (!sortedValues.length) return NaN;
-      const idx = Math.min(sortedValues.length - 1, Math.max(0, Math.round((sortedValues.length - 1) * p)));
-      return sortedValues[idx];
-    }
-
-    function updateHeaderInfo(sourceName) {
-      $("header-bands").textContent = `Bands: ${state.bands}`;
-      $("header-size").textContent = `Size: ${state.width} × ${state.height}`;
-      $("header-crs").textContent = `CRS: ${state.rasterCrs}`;
-      const b = state.bbox;
-      $("header-bbox").textContent = `BBox: ${b[0].toFixed(2)}, ${b[1].toFixed(2)} → ${b[2].toFixed(2)}, ${b[3].toFixed(2)}`;
-      document.title = `Milan SUHI Data Cube - ${state.years[0]}–${state.years[state.years.length - 1]}`;
-    }
-
-    function setupYearSlider() {
-      const slider = $("year-slider");
-      slider.min = state.years[0];
-      slider.max = state.years[state.years.length - 1];
-      slider.value = state.years.includes(CONFIG.initialYear) ? CONFIG.initialYear : state.years[0];
-    }
-
-    // =====================================================================
-    // 7. Raster rendering: current band -> Canvas -> Leaflet ImageOverlay
-    // =====================================================================
-    function getStretchRange(bandIndex) {
-      const mode = $("stretch-select").value;
-      const bandStats = state.bandStats[bandIndex];
-      const globalStats = state.globalStats;
-
-      if (mode === "manual") {
-        return {
-          min: parseFloat($("manual-min").value),
-          max: parseFloat($("manual-max").value),
-          label: "Fixed manual range"
-        };
-      }
-      if (mode === "current") return { min: bandStats.min, max: bandStats.max, label: "Current-year actual Min–Max" };
-      if (mode === "symmetric") {
-        const m = globalStats.maxAbs;
-        return { min: -m, max: m, label: "Symmetric actual range around 0" };
-      }
-      if (mode === "robust") return { min: bandStats.p2, max: bandStats.p98, label: "Robust P2–P98, visualization only" };
-      return { min: globalStats.min, max: globalStats.max, label: "Full-period actual Min–Max, no clipping" };
-    }
-
-    function renderYear(year, force = false) {
-      if (!state.rasters.length) return;
-      const bandIndex = state.years.indexOf(Number(year));
-      if (bandIndex < 0) return;
-      if (!force && bandIndex === state.currentBandIndex) return;
-
-      state.currentBandIndex = bandIndex;
-      $("year-label").textContent = String(year);
-      $("year-slider").value = year;
-
-      const canvas = document.createElement("canvas");
-      canvas.width = state.width;
-      canvas.height = state.height;
-      const ctx = canvas.getContext("2d");
-      ctx.imageSmoothingEnabled = false;
-      const imageData = ctx.createImageData(state.width, state.height);
-      const pixels = imageData.data;
-      const band = state.rasters[bandIndex];
-      const range = getStretchRange(bandIndex);
-      const palette = $("palette-select").value;
-
-      for (let i = 0; i < band.length; i++) {
-        const v = Number(band[i]);
-        const j = i * 4;
-        if (!isValidValue(v)) {
-          pixels[j + 3] = 0;
-          continue;
-        }
-        const [r, g, b, a] = valueToRgba(v, range.min, range.max, palette);
-        pixels[j] = r;
-        pixels[j + 1] = g;
-        pixels[j + 2] = b;
-        pixels[j + 3] = a;
-      }
-
-      ctx.putImageData(imageData, 0, 0);
-      const url = canvas.toDataURL("image/png");
-
-      if (state.overlay) map.removeLayer(state.overlay);
-      state.overlay = L.imageOverlay(url, state.bounds, {
-        opacity: parseFloat($("opacity-slider").value),
-        interactive: true,
-        className: "suhi-overlay"
-      });
-
-      state.overlayCanvasUrl = url;
-      setResultLayerVisibility(state.resultLayerVisible);
-      updateLegend(range.min, range.max, palette, range.label);
-      updateCurrentPixelMetric();
-      if (state.lastPixel) updateChartForPixel(state.lastPixel.x, state.lastPixel.y, state.lastPixel.lat, state.lastPixel.lng, false);
-    }
-
-    function valueToRgba(v, min, max, palette) {
-      if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return [255, 255, 255, 0];
-
-      const alpha = 255;
-
-      if (palette === "thermal") {
-        const t = clamp((v - min) / (max - min), 0, 1);
-        return interpolateStops(t, [
-          [0.00, [15, 23, 42]],
-          [0.25, [88, 28, 135]],
-          [0.52, [220, 38, 38]],
-          [0.76, [249, 115, 22]],
-          [1.00, [254, 240, 138]]
-        ], alpha);
-      }
-
-      // Scientific, SUHI, and coolwarm palettes use 0 °C as the semantic center.
-      if (v < 0 && min < 0) {
-        const t = clamp((v - min) / (0 - min), 0, 1);
-        if (palette === "coolwarm" || palette === "scientific") {
-          return interpolateStops(t, [[0, [37, 99, 235]], [1, [248, 250, 252]]], alpha);
-        }
-        return interpolateStops(t, [[0, [30, 64, 175]], [0.55, [56, 189, 248]], [1, [248, 250, 252]]], alpha);
-      }
-
-      if (v >= 0 && max > 0) {
-        const t = clamp(v / max, 0, 1);
-        if (palette === "coolwarm" || palette === "scientific") {
-          return interpolateStops(t, [[0, [248, 250, 252]], [1, [185, 28, 28]]], alpha);
-        }
-        return interpolateStops(t, [[0, [248, 250, 252]], [0.35, [254, 240, 138]], [0.72, [239, 68, 68]], [1, [127, 29, 29]]], alpha);
-      }
-
-      const t = clamp((v - min) / (max - min), 0, 1);
-      return interpolateStops(t, [[0, [30, 64, 175]], [0.5, [248, 250, 252]], [1, [185, 28, 28]]], alpha);
-    }
-
-    function interpolateStops(t, stops, alpha = 255) {
-      for (let i = 0; i < stops.length - 1; i++) {
-        const [p0, c0] = stops[i];
-        const [p1, c1] = stops[i + 1];
-        if (t >= p0 && t <= p1) {
-          const local = (t - p0) / (p1 - p0 || 1);
-          return [
-            Math.round(c0[0] + (c1[0] - c0[0]) * local),
-            Math.round(c0[1] + (c1[1] - c0[1]) * local),
-            Math.round(c0[2] + (c1[2] - c0[2]) * local),
-            alpha
-          ];
-        }
-      }
-      const last = stops[stops.length - 1][1];
-      return [last[0], last[1], last[2], alpha];
-    }
-
-    function clamp(v, min, max) {
-      return Math.max(min, Math.min(max, v));
-    }
-
-    function updateLegend(min, max, palette, rangeLabel = "") {
-      $("legend-min").textContent = `${formatNumber(min, 2)} °C`;
-      $("legend-max").textContent = `${formatNumber(max, 2)} °C`;
-      const legend = $("legend-gradient");
-      const mode = $("legend-mode");
-      if (palette === "thermal") {
-        legend.style.background = "linear-gradient(90deg, #0f172a, #581c87, #dc2626, #f97316, #fef08a)";
-        mode.textContent = rangeLabel || "Enhanced thermal";
-      } else if (palette === "coolwarm" || palette === "scientific") {
-        legend.style.background = "linear-gradient(90deg, #2563eb, #f8fafc, #b91c1c)";
-        mode.textContent = rangeLabel || "Scientific diverging";
-      } else {
-        legend.style.background = "linear-gradient(90deg, #1e40af, #38bdf8, #f8fafc, #fef08a, #ef4444, #7f1d1d)";
-        mode.textContent = rangeLabel || "Classic SUHI";
-      }
-    }
-
-    // =====================================================================
-    // 8. Click a pixel and extract its time series
-    // =====================================================================
-    map.on("click", (e) => {
-      if (!state.resultLayerVisible) return;
-      if (!state.rasters.length || !state.bbox) return;
-      const pixel = latLngToPixel(e.latlng.lat, e.latlng.lng);
-      if (!pixel) {
-        $("click-state").textContent = "Outside raster";
-        $("click-state").className = "warn";
-        return;
-      }
-
-      state.lastPixel = { ...pixel, lat: e.latlng.lat, lng: e.latlng.lng };
-
-      if (state.marker) map.removeLayer(state.marker);
-      state.marker = L.circleMarker(e.latlng, {
-        radius: 7,
-        color: "#ffffff",
-        weight: 2,
-        fillColor: "#ef4444",
-        fillOpacity: 0.92
-      }).addTo(map);
-
-      const coordHtml = formatCoordinateHTML(e.latlng.lat, e.latlng.lng, pixel);
-      state.marker.bindPopup(`Pixel: row ${pixel.y}, col ${pixel.x}<br>${coordHtml}`).openPopup();
-      updateChartForPixel(pixel.x, pixel.y, e.latlng.lat, e.latlng.lng, true);
-    });
-
-    function latLngToPixel(lat, lng) {
-      const [xmin, ymin, xmax, ymax] = state.bbox;
-      const [rx, ry] = latLngToRasterXY(lat, lng, state.rasterCrs);
-      if (rx < xmin || rx > xmax || ry < ymin || ry > ymax) return null;
-      const x = Math.floor((rx - xmin) / (xmax - xmin) * state.width);
-      const y = Math.floor((ymax - ry) / (ymax - ymin) * state.height);
-      if (x < 0 || x >= state.width || y < 0 || y >= state.height) return null;
-      return { x, y };
-    }
-
-    function pixelToIndex(x, y) {
-      return y * state.width + x;
-    }
-
-    function updateChartForPixel(x, y, lat, lng, showPopup = true) {
-      const idx = pixelToIndex(x, y);
-      const values = state.rasters.map(band => {
-        const v = Number(band[idx]);
-        return isValidValue(v) ? Number(v.toFixed(3)) : null;
-      });
-
-      const validPairs = values
-        .map((v, i) => ({ year: state.years[i], value: v }))
-        .filter(d => d.value !== null);
-
-      const mean = validPairs.length ? validPairs.reduce((s, d) => s + d.value, 0) / validPairs.length : NaN;
-      const slope = validPairs.length >= 2 ? linearSlope(validPairs.map(d => d.year), validPairs.map(d => d.value)) : NaN;
-      const currentValue = values[state.currentBandIndex];
-
-      $("click-state").textContent = "Selected";
-      $("click-state").className = "ok";
-      $("metric-coord").innerHTML = formatCoordinateHTML(lat, lng, { x, y });
-      $("metric-value").innerHTML = `${currentValue === null ? "--" : currentValue.toFixed(2)}<span class="unit">°C</span>`;
-      $("metric-mean").innerHTML = `${formatNumber(mean, 2)}<span class="unit">°C</span>`;
-      $("metric-slope").innerHTML = `${formatNumber(slope, 4)}<span class="unit">°C/yr</span>`;
-      $("btn-download-csv").disabled = false;
-      $("btn-clear-point").disabled = false;
-
-      renderChart(values, lat, lng, mean, slope);
-      state.lastPixel.values = values;
-      state.lastPixel.mean = mean;
-      state.lastPixel.slope = slope;
-    }
-
-    function linearSlope(xs, ys) {
-      const n = xs.length;
-      const xMean = xs.reduce((a, b) => a + b, 0) / n;
-      const yMean = ys.reduce((a, b) => a + b, 0) / n;
-      let num = 0;
-      let den = 0;
-      for (let i = 0; i < n; i++) {
-        num += (xs[i] - xMean) * (ys[i] - yMean);
-        den += Math.pow(xs[i] - xMean, 2);
-      }
-      return den === 0 ? NaN : num / den;
-    }
-
-    function updateCurrentPixelMetric() {
-      if (!state.lastPixel || !state.lastPixel.values) return;
-      const currentValue = state.lastPixel.values[state.currentBandIndex];
-      $("metric-value").innerHTML = `${currentValue === null ? "--" : currentValue.toFixed(2)}<span class="unit">°C</span>`;
-    }
-
-    // =====================================================================
-    // 9. ECharts chart
-    // =====================================================================
-    function initChart() {
-      chart.setOption({
-        backgroundColor: "transparent",
-        title: {
-          text: "Click a map pixel to inspect the long-term SUHI trend",
-          subtext: "The time series will appear here",
-          left: "center",
-          textStyle: { color: "#e2e8f0", fontSize: 14 },
-          subtextStyle: { color: "#94a3b8" }
-        },
-        grid: { left: 48, right: 20, top: 70, bottom: 44 },
-        xAxis: { type: "category", data: [], axisLabel: { color: "#cbd5e1" }, axisLine: { lineStyle: { color: "#475569" } } },
-        yAxis: { type: "value", name: "SUHI °C", nameTextStyle: { color: "#cbd5e1" }, axisLabel: { color: "#cbd5e1" }, splitLine: { lineStyle: { color: "rgba(148,163,184,0.18)", type: "dashed" } } },
-        series: []
-      });
-    }
-
-    function renderChart(values, lat, lng, mean, slope) {
-      const currentYear = state.years[state.currentBandIndex];
-      chart.setOption({
-        backgroundColor: "transparent",
-        title: {
-          text: "Pixel-level SUHI interannual curve",
-          subtext: `Raw annual band values | WGS84 ${lat.toFixed(4)}, ${lng.toFixed(4)} | Mean ${formatNumber(mean, 2)} °C | Slope ${formatNumber(slope, 4)} °C/yr`,
-          left: "center",
-          textStyle: { color: "#e2e8f0", fontSize: 14, fontWeight: 700 },
-          subtextStyle: { color: "#94a3b8", fontSize: 11 }
-        },
-        tooltip: {
-          trigger: "axis",
-          backgroundColor: "rgba(15, 23, 42, 0.95)",
-          borderColor: "rgba(255,255,255,0.15)",
-          textStyle: { color: "#f8fafc" },
-          formatter: (params) => {
-            const p = params[0];
-            const val = p.value === null || p.value === undefined ? "NoData" : `${Number(p.value).toFixed(3)} °C`;
-            return `<b>${p.axisValue}</b><br/>SUHI: ${val}`;
-          }
-        },
-        grid: { left: 48, right: 20, top: 76, bottom: 48 },
-        xAxis: {
-          type: "category",
-          data: state.years,
-          axisLabel: { color: "#cbd5e1", rotate: 45 },
-          axisLine: { lineStyle: { color: "#475569" } }
-        },
-        yAxis: {
-          type: "value",
-          name: "SUHI intensity (°C)",
-          nameTextStyle: { color: "#cbd5e1" },
-          axisLabel: { color: "#cbd5e1", formatter: "{value}" },
-          splitLine: { lineStyle: { color: "rgba(148,163,184,0.18)", type: "dashed" } }
-        },
-        series: [{
-          name: "SUHI",
-          type: "line",
-          data: values,
-          smooth: false,
-          connectNulls: false,
-          symbolSize: 7,
-          lineStyle: { width: 2.5, color: "#fb7185" },
-          itemStyle: { color: "#38bdf8", borderColor: "#ffffff", borderWidth: 1.2 },
-          markLine: {
-            silent: true,
-            symbol: "none",
-            label: { color: "#cbd5e1" },
-            lineStyle: { color: "rgba(248, 250, 252, 0.64)", type: "dashed" },
-            data: [
-              { yAxis: 0, name: "0°C" },
-              { xAxis: currentYear, name: "Current year" }
-            ]
-          }
-        }]
-      }, true);
-    }
-
-    // =====================================================================
-    // 10. UI events
-    // =====================================================================
-    $("year-slider").addEventListener("input", (e) => renderYear(parseInt(e.target.value, 10), true));
-
-    $("btn-prev").addEventListener("click", () => {
-      const idx = Math.max(0, state.currentBandIndex - 1);
-      renderYear(state.years[idx], true);
-    });
-
-    $("btn-next").addEventListener("click", () => {
-      const idx = Math.min(state.years.length - 1, state.currentBandIndex + 1);
-      renderYear(state.years[idx], true);
-    });
-
-    $("btn-play").addEventListener("click", () => {
-      state.playing = !state.playing;
-      $("btn-play").textContent = state.playing ? "Pause" : "Play";
-      if (state.playing) {
-        state.playTimer = setInterval(() => {
-          const nextIdx = (state.currentBandIndex + 1) % state.years.length;
-          renderYear(state.years[nextIdx], true);
-        }, 950);
-      } else {
-        clearInterval(state.playTimer);
-      }
-    });
-
-    $("btn-toggle-result-layer").addEventListener("click", () => {
-      setResultLayerVisibility(!state.resultLayerVisible);
-    });
-
-    $("opacity-slider").addEventListener("input", () => {
-      if (state.overlay && state.resultLayerVisible && map.hasLayer(state.overlay)) {
-        state.overlay.setOpacity(parseFloat($("opacity-slider").value));
-      }
-    });
-
-    ["palette-select", "stretch-select", "manual-min", "manual-max"].forEach(id => {
-      $(id).addEventListener("change", () => renderYear(state.years[state.currentBandIndex], true));
-    });
-
-    $("btn-redraw").addEventListener("click", () => renderYear(state.years[state.currentBandIndex], true));
-
-    $("btn-reset-view").addEventListener("click", () => {
-      if (state.bounds) map.fitBounds(state.bounds, { padding: [22, 22] });
-    });
-
-    $("btn-load-selection").addEventListener("click", () => {
-      updateTifUrlFromSelection();
-      const url = $("tif-url").value.trim();
-      if (url) loadFromUrl(url);
-    });
-
-    $("btn-load-url").addEventListener("click", () => {
-      const url = $("tif-url").value.trim();
-      if (url) loadFromUrl(url);
-    });
-
-    $("local-file").addEventListener("change", async (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      const buffer = await file.arrayBuffer();
-      await loadFromArrayBuffer(buffer, file.name);
-    });
-
-    $("btn-clear-point").addEventListener("click", () => {
-      if (state.marker) map.removeLayer(state.marker);
-      state.marker = null;
-      state.lastPixel = null;
-      $("click-state").textContent = "Waiting for click";
-      $("click-state").className = "cool";
-      $("metric-coord").textContent = "--";
-      $("metric-value").innerHTML = `--<span class="unit">°C</span>`;
-      $("metric-mean").innerHTML = `--<span class="unit">°C</span>`;
-      $("metric-slope").innerHTML = `--<span class="unit">°C/yr</span>`;
-      $("btn-download-csv").disabled = true;
-      $("btn-clear-point").disabled = true;
-      initChart();
-    });
-
-    $("btn-download-csv").addEventListener("click", () => {
-      if (!state.lastPixel || !state.lastPixel.values) return;
-      const rows = [["year", "suhi_celsius", "lat_wgs84", "lng_wgs84", "utm_x_epsg32632", "utm_y_epsg32632", "row", "col"]];
-      const [utmX, utmY] = latLngToRasterXY(state.lastPixel.lat, state.lastPixel.lng);
-      state.years.forEach((year, i) => {
-        rows.push([
-          year,
-          state.lastPixel.values[i] === null ? "" : state.lastPixel.values[i],
-          state.lastPixel.lat,
-          state.lastPixel.lng,
-          utmX,
-          utmY,
-          state.lastPixel.y,
-          state.lastPixel.x
-        ]);
-      });
-      const csv = rows.map(r => r.join(",")).join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `suhi_pixel_${state.lastPixel.lat.toFixed(4)}_${state.lastPixel.lng.toFixed(4)}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    });
-
-    window.addEventListener("resize", () => chart.resize());
-
-    // =====================================================================
-    // 11. Start
-    // =====================================================================
-    populateSelectors();
-    loadFromUrl($("tif-url").value.trim());
-  </script>
+  <!-- basemap -->
+  <div class="basemap-control">
+    <label>Base map</label>
+    <select>
+      <option>Google Satellite</option>
+      <option>OSM</option>
+    </select>
+  </div>
+
+</main>
+
+<aside id="side-panel"></aside>
+
+</div>
 </body>
 </html>
