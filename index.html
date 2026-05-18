@@ -420,28 +420,36 @@
       display: none !important;
     }
 
+    /* 优化后的图例样式：限制宽度、标题上下排列 */
     .legend-card {
       position: absolute;
       left: 22px;
       top: 22px;
       z-index: 900;
       width: fit-content;
-      min-width: 260px;
+      min-width: 200px;
+      max-width: 260px; /* 增加最大宽度限制，强制长文本换行 */
       background: rgba(15, 23, 42, 0.84);
       border: 1px solid rgba(255, 255, 255, 0.16);
       border-radius: 18px;
-      padding: 12px;
+      padding: 12px 14px;
       box-shadow: var(--shadow);
       backdrop-filter: blur(16px);
     }
 
     .legend-title {
       display: flex;
-      justify-content: space-between;
+      flex-direction: column; /* 将标题和状态文本改为上下排列，大幅节省横向空间 */
       font-size: 12px;
       color: #cbd5e1;
       margin-bottom: 8px;
-      gap: 16px;
+      gap: 4px;
+    }
+
+    #legend-mode {
+      font-size: 11px;
+      font-weight: normal;
+      color: var(--muted);
     }
 
     #legend-gradient {
