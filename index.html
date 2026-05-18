@@ -554,11 +554,13 @@
     .warn { color: #fbbf24; }
     .ok { color: #86efac; }
 
-    /* 优化中等屏幕布局 */
+    /* ===== 响应式适配 (Responsive Design) ===== */
+
+    /* 1. 平板或小屏幕电脑 (Tablet / Small Desktop) */
     @media (max-width: 1060px) {
       #app {
         grid-template-columns: 1fr;
-        grid-template-rows: 72px 55vh 1fr; /* 灵活适配高度 */
+        grid-template-rows: 72px 55vh 1fr; 
       }
       #side-panel {
         border-left: 0;
@@ -566,39 +568,81 @@
       }
       #chart { height: 300px; }
       .header-stats { display: none; }
-      
-      .basemap-control {
-        right: 12px;
-        bottom: 120px; /* 防止与 timeline 遮挡 */
-      }
-      #timeline-card { 
-        left: 12px;
-        bottom: 12px;
-        width: fit-content;
-      }
+      .basemap-control { right: 12px; bottom: 120px; }
+      #timeline-card { left: 12px; bottom: 12px; width: fit-content; }
     }
 
-    /* 优化手机等窄屏布局 */
-    @media (max-width: 680px) {
-      header { padding: 0 12px; }
-      h1 { font-size: 15px; }
-      .subtitle { display: none; }
-      
-      .legend-card { left: 12px; right: auto; width: fit-content; max-width: calc(100vw - 24px); }
-      .map-layer-toggle { right: 12px; top: 72px; width: fit-content; }
-      .basemap-control { right: 12px; bottom: 108px; top: auto; width: fit-content; max-width: 220px; }
-      
-      /* 在极小屏幕下让 timeline 卡片撑满以方便拖动进度条 */
-      #timeline-card { 
-        left: 12px; 
-        right: 12px; 
-        bottom: 12px; 
-        width: auto; 
-        min-width: 0;
+    /* 2. 手机端 (Mobile) - 彻底改为允许上下滚动的流式布局 */
+    @media (max-width: 768px) {
+      /* 解除全屏锁定，允许页面原生上下滑动 */
+      html, body {
+        overflow: auto !important;
+        height: auto !important;
       }
-      #year-label { font-size: 28px; }
-      .timeline-top { flex-wrap: wrap; gap: 10px; }
+      
+      #app {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        min-height: 100vh;
+      }
+
+      /* 头部自适应高度，允许标题换行 */
+      header { 
+        padding: 12px; 
+        height: auto; 
+      }
+      h1 { font-size: 16px; white-space: normal; line-height: 1.4; }
+      .subtitle { display: none; }
+      .header-stats { display: none; }
+
+      /* 地图区域：固定占屏幕 60% 高度（确保手指有操作空间），剩下的让用户往下划 */
+      #map-wrap {
+        height: 60vh; 
+        min-height: 400px; 
+        width: 100%;
+        flex-shrink: 0;
+      }
+
+      /* 面板区域：自适应内容高度，自然向下延展 */
+      #side-panel {
+        height: auto;
+        overflow: visible;
+      }
+      .panel-inner {
+        padding: 12px;
+      }
+
+      /* 重新分布地图上的悬浮控件，避免重叠，并整体缩小比例 */
+      .legend-card { 
+        top: 10px; left: 10px; right: auto; 
+        width: fit-content; max-width: 190px; 
+        padding: 8px;
+        transform: scale(0.85); transform-origin: top left;
+      }
+      .map-layer-toggle { 
+        top: 10px; right: 10px; 
+        width: fit-content; min-width: 100px;
+        transform: scale(0.85); transform-origin: top right;
+      }
+      /* 将底图切换移到右上角，避开底部的 Timeline 控件 */
+      .basemap-control { 
+        top: 60px; right: 10px; bottom: auto; 
+        width: fit-content; max-width: 180px; 
+        transform: scale(0.85); transform-origin: top right;
+      }
+      /* 底部时间轴铺满宽度 */
+      #timeline-card { 
+        left: 10px; right: 10px; bottom: 10px; 
+        width: auto; min-width: 0; 
+        padding: 10px;
+      }
+      #year-label { font-size: 24px; }
+      .timeline-top { flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+
+      /* 侧边栏内所有并排表单改为单列 */
       .metric-grid, .two-col, .three-col { grid-template-columns: 1fr; }
+      .metric { min-height: 60px; }
     }
   </style>
 </head>
